@@ -1,10 +1,16 @@
 
+
 // User type aligned with Firebase Auth and common OAuth providers
 export interface User {
   uid: string; // Firebase User ID
   email: string | null;
   name: string | null;
   profileImageUrl?: string | null;
+}
+
+export interface EmailPasswordCredentials {
+  email: string;
+  password: string;
 }
 
 export interface Device {
