@@ -1,4 +1,4 @@
-import type { SensorData, SensorType } from '@/lib/types';
+import { SensorType, type SensorData } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Thermometer, Droplets, Wind, Sun, Waves, Leaf, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
