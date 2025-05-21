@@ -1,6 +1,6 @@
 import type { SensorData, SensorType } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Thermometer, Droplets, Wind, Sun, Ph મહ, Waves, Leaf, TrendingUp } from 'lucide-react'; // Using Ph from a different library source, assuming a placeholder. Lucide does not have PH.
+import { Thermometer, Droplets, Wind, Sun, Waves, Leaf, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SensorDisplayCardProps {
@@ -50,3 +50,4 @@ export function SensorDisplayCard({ sensorData, sensorType, className }: SensorD
     </Card>
   );
 }
+
