@@ -1,23 +1,23 @@
+
+// User type aligned with Firebase Auth and common OAuth providers
 export interface User {
-  id: string;
-  email: string;
-  name: string;
-  country: string;
-  profileImageUrl?: string;
-  registrationDate: number;
+  uid: string; // Firebase User ID
+  email: string | null;
+  name: string | null;
+  profileImageUrl?: string | null;
 }
 
 export interface Device {
   serialNumber: string;
-  userId: string;
+  userId: string; // Should match User['uid']
   name: string;
   activationDate: number;
   warrantyEndDate: number;
   isActive: boolean;
   isPoweredByBattery: boolean;
   lastUpdateTimestamp: number;
-  plantType?: string; // Added for AI Assistant
-  location?: string; // Added for AI Assistant
+  plantType?: string; 
+  location?: string; 
 }
 
 export enum SensorType {
@@ -56,7 +56,7 @@ export enum TicketStatus {
 
 export interface Ticket {
   id: string;
-  userId: string;
+  userId: string; // Should match User['uid']
   deviceId: string;
   title: string;
   description: string;

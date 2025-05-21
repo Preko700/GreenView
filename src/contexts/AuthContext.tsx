@@ -1,16 +1,30 @@
+
 "use client";
 
+import type { User as FirebaseUserType } from 'firebase/auth';
+import { 
+  onAuthStateChanged, 
+  signOut, 
+  signInWithPopup,
+  GoogleAuthProvider,
+  OAuthProvider, // For Microsoft
+  FacebookAuthProvider,
+  TwitterAuthProvider,
+} from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import type { User } from '@/lib/types';
-import { mockUser } from '@/data/mockData';
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 interface AuthContextType {
   user: User | null;
+  firebaseUser: FirebaseUserType | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, pass: string) => Promise<void>;
-  register: (name: string, email: string, pass: string, country: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithMicrosoft: () => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
+  signInWithTwitter: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -18,55 +32,86 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUserType | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate checking auth state on load
-    const storedAuth = localStorage.getItem('isAuthenticatedGreenView');
-    if (storedAuth === 'true') {
-      setUser(mockUser);
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      setIsLoading(true);
+      if (fbUser) {
+        setFirebaseUser(fbUser);
+        const appUser: User = {
+          uid: fbUser.uid,
+          email: fbUser.email,
+          name: fbUser.displayName,
+          profileImageUrl: fbUser.photoURL,
+        };
+        setUser(appUser);
+        setIsAuthenticated(true);
+      } else {
+        setFirebaseUser(null);
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const login = async (email: string, pass: string) => {
+  const handleSignInWithProvider = async (provider: GoogleAuthProvider | OAuthProvider | FacebookAuthProvider | TwitterAuthProvider) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    // In a real app, you'd validate credentials here
-    if (email && pass) { // Basic check
-      setUser(mockUser);
-      setIsAuthenticated(true);
-      localStorage.setItem('isAuthenticatedGreenView', 'true');
-    } else {
-      throw new Error("Invalid credentials");
+    try {
+      await signInWithPopup(auth, provider);
+      // onAuthStateChanged will handle setting user state
+    } catch (error) {
+      console.error("OAuth sign-in error:", error);
+      // Let the calling component handle specific error UI if needed
+      setIsLoading(false); 
+      throw error;
     }
-    setIsLoading(false);
+    // setIsLoading(false) will be handled by onAuthStateChanged's effect
   };
 
-  const register = async (name: string, email: string, pass: string, country: string) => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-     const newUser: User = { ...mockUser, name, email, country, id: `new-${Date.now()}`};
-    setUser(newUser);
-    setIsAuthenticated(true);
-    localStorage.setItem('isAuthenticatedGreenView', 'true');
-    setIsLoading(false);
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    await handleSignInWithProvider(provider);
+  };
+
+  const signInWithMicrosoft = async () => {
+    const provider = new OAuthProvider('microsoft.com');
+    // You can add custom parameters if needed, e.g.
+    // provider.setCustomParameters({
+    //   prompt: 'consent',
+    //   tenant: 'YOUR_TENANT_ID', // Optional: for specific Azure AD tenant
+    // });
+    await handleSignInWithProvider(provider);
+  };
+
+  const signInWithFacebook = async () => {
+    const provider = new FacebookAuthProvider();
+    await handleSignInWithProvider(provider);
+  };
+
+  const signInWithTwitter = async () => {
+    const provider = new TwitterAuthProvider();
+    await handleSignInWithProvider(provider);
   };
 
   const logout = async () => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('isAuthenticatedGreenView');
-    setIsLoading(false);
+    try {
+      await signOut(auth);
+      // onAuthStateChanged will handle setting user state to null
+    } catch (error) {
+      console.error("Logout error:", error);
+      setIsLoading(false); // Ensure loading state is reset on error
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, firebaseUser, isAuthenticated, isLoading, signInWithGoogle, signInWithMicrosoft, signInWithFacebook, signInWithTwitter, logout }}>
       {children}
     </AuthContext.Provider>
   );

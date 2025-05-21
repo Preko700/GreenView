@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -5,114 +6,84 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/Logo';
-import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, LogIn } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 export default function RegisterPage() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [country, setCountry] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const { register } = useAuth();
+  const { signInWithGoogle, signInWithMicrosoft, signInWithFacebook, signInWithTwitter, isLoading: authIsLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOAuthSignUp = async (signUpMethod: () => Promise<void>, providerName: string) => {
     setIsLoading(true);
     try {
-      await register(name, email, password, country);
-      toast({ title: "Registration Successful", description: "Welcome to GreenView!" });
+      await signUpMethod();
+      toast({ title: "Registration Successful", description: `Welcome to GreenView via ${providerName}!` });
       router.push('/dashboard');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Registration failed. Please try again.";
-      toast({ title: "Registration Failed", description: errorMessage, variant: "destructive" });
+    } catch (error: any) {
+      let errorMessage = "Registration failed. Please try again.";
+      if (error.code === 'auth/popup-closed-by-user') {
+        errorMessage = `${providerName} sign-up cancelled.`;
+      } else if (error.code === 'auth/account-exists-with-different-credential') {
+        errorMessage = `An account already exists with the same email address but different sign-in credentials. Try logging in with that provider.`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      toast({ title: `${providerName} Registration Failed`, description: errorMessage, variant: "destructive" });
+    } finally {
       setIsLoading(false);
     }
   };
+
+  const currentLoading = isLoading || authIsLoading;
 
   return (
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="items-center text-center">
         <Logo className="h-12 w-12" />
         <CardTitle className="mt-2 text-2xl">Create your GreenView Account</CardTitle>
-        <CardDescription>Join us to start managing your greenhouse efficiently.</CardDescription>
+        <CardDescription>Sign up using one of the providers below to get started.</CardDescription>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Full Name</Label>
-            <Input
-              id="name"
-              type="text"
-              placeholder="John Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              disabled={isLoading}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="your@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              disabled={isLoading}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-             <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                placeholder="•••••••• (min. 6 characters)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                disabled={isLoading}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
-                onClick={() => setShowPassword(!showPassword)}
-                disabled={isLoading}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="country">Country</Label>
-            <Input
-              id="country"
-              type="text"
-              placeholder="e.g., USA"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              required
-              disabled={isLoading}
-            />
-          </div>
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Create Account
-          </Button>
-        </form>
+      <CardContent className="space-y-4">
+        <Button 
+          onClick={() => handleOAuthSignUp(signInWithGoogle, 'Google')} 
+          className="w-full" 
+          disabled={currentLoading}
+          variant="outline"
+        >
+          {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+          Sign up with Google
+        </Button>
+        <Button 
+          onClick={() => handleOAuthSignUp(signInWithMicrosoft, 'Microsoft')} 
+          className="w-full" 
+          disabled={currentLoading}
+          variant="outline"
+        >
+          {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+          Sign up with Microsoft
+        </Button>
+        <Button 
+          onClick={() => handleOAuthSignUp(signInWithFacebook, 'Facebook')} 
+          className="w-full" 
+          disabled={currentLoading}
+          variant="outline"
+        >
+          {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+          Sign up with Facebook
+        </Button>
+        <Button 
+          onClick={() => handleOAuthSignUp(signInWithTwitter, 'Twitter')} 
+          className="w-full" 
+          disabled={currentLoading}
+          variant="outline"
+        >
+          {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
+          Sign up with Twitter
+        </Button>
       </CardContent>
       <CardFooter className="flex-col items-center">
         <p className="text-sm text-muted-foreground">
