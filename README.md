@@ -66,7 +66,7 @@ GreenView es una moderna aplicación web diseñada para ayudar a los usuarios a 
 - **Backend**:
   - Node.js con Express
   - TypeScript
-  - MongoDB (o tu base de datos preferida)
+  - Firebase y SQLite (o tu base de datos preferida)
 
 - **DevOps & Herramientas**:
   - Docker
