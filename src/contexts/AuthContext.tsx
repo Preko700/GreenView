@@ -1,165 +1,95 @@
 
 "use client";
 
-import type { User as FirebaseUserType } from 'firebase/auth';
-import { 
-  onAuthStateChanged, 
-  signOut, 
-  signInWithPopup,
-  GoogleAuthProvider,
-  OAuthProvider, // For Microsoft
-  FacebookAuthProvider,
-  TwitterAuthProvider,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import type { User, EmailPasswordCredentials } from '@/lib/types';
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
   user: User | null;
-  firebaseUser: FirebaseUserType | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  signInWithGoogle: () => Promise<void>;
-  signInWithMicrosoft: () => Promise<void>;
-  signInWithFacebook: () => Promise<void>;
-  signInWithTwitter: () => Promise<void>;
-  signUpWithEmail: (credentials: EmailPasswordCredentials, displayName?: string) => Promise<void>;
-  signInWithEmail: (credentials: EmailPasswordCredentials) => Promise<void>;
+  login: (credentials: EmailPasswordCredentials) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LOCAL_STORAGE_KEY = 'simpleGreenViewAuth';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUserType | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      setIsLoading(true);
-      if (fbUser) {
-        setFirebaseUser(fbUser);
-        const appUser: User = {
-          uid: fbUser.uid,
-          email: fbUser.email,
-          name: fbUser.displayName,
-          profileImageUrl: fbUser.photoURL,
-        };
-        setUser(appUser);
-        setIsAuthenticated(true);
-      } else {
-        setFirebaseUser(null);
-        setUser(null);
-        setIsAuthenticated(false);
+    try {
+      const storedAuth = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (storedAuth) {
+        const authData = JSON.parse(storedAuth);
+        if (authData.isAuthenticated && authData.user) {
+          setUser(authData.user);
+          setIsAuthenticated(true);
+        }
       }
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+    } catch (error) {
+      console.error("Failed to load auth state from localStorage", error);
+      // Clear potentially corrupted storage
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }
+    setIsLoading(false);
   }, []);
 
-  const handleSignInWithProvider = async (provider: GoogleAuthProvider | OAuthProvider | FacebookAuthProvider | TwitterAuthProvider) => {
+  const login = async (credentials: EmailPasswordCredentials) => {
     setIsLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
+
+    // No actual validation, just "log in"
+    const displayName = credentials.email.split('@')[0] || "User";
+    const loggedInUser: User = {
+      email: credentials.email,
+      name: displayName,
+    };
+    
+    setUser(loggedInUser);
+    setIsAuthenticated(true);
     try {
-      await signInWithPopup(auth, provider);
-      // onAuthStateChanged will handle setting user state
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ isAuthenticated: true, user: loggedInUser }));
     } catch (error) {
-      console.error("OAuth sign-in error:", error);
-      setIsLoading(false); 
-      throw error;
+      console.error("Failed to save auth state to localStorage", error);
     }
-  };
-
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    await handleSignInWithProvider(provider);
-  };
-
-  const signInWithMicrosoft = async () => {
-    const provider = new OAuthProvider('microsoft.com');
-    await handleSignInWithProvider(provider);
-  };
-
-  const signInWithFacebook = async () => {
-    const provider = new FacebookAuthProvider();
-    await handleSignInWithProvider(provider);
-  };
-
-  const signInWithTwitter = async () => {
-    const provider = new TwitterAuthProvider();
-    await handleSignInWithProvider(provider);
-  };
-
-  const signUpWithEmail = async ({ email, password }: EmailPasswordCredentials, displayName?: string) => {
-    setIsLoading(true);
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      if (userCredential.user && displayName) {
-        await updateProfile(userCredential.user, { displayName });
-        // Refresh user to get displayName
-        const fbUser = auth.currentUser;
-         if (fbUser) {
-            setFirebaseUser(fbUser);
-            const appUser: User = {
-              uid: fbUser.uid,
-              email: fbUser.email,
-              name: fbUser.displayName,
-              profileImageUrl: fbUser.photoURL,
-            };
-            setUser(appUser);
-         }
-      }
-      // onAuthStateChanged will also update state
-    } catch (error) {
-      console.error("Email/password sign-up error:", error);
-      setIsLoading(false);
-      throw error;
-    }
-    // setIsLoading(false) handled by onAuthStateChanged
-  };
-
-  const signInWithEmail = async ({ email, password }: EmailPasswordCredentials) => {
-    setIsLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // onAuthStateChanged will handle setting user state
-    } catch (error) {
-      console.error("Email/password sign-in error:", error);
-      setIsLoading(false);
-      throw error;
-    }
+    
+    toast({ title: "Login Successful", description: `Welcome back, ${displayName}!` });
+    router.push('/dashboard');
+    setIsLoading(false);
   };
 
   const logout = async () => {
     setIsLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    setUser(null);
+    setIsAuthenticated(false);
     try {
-      await signOut(auth);
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
     } catch (error) {
-      console.error("Logout error:", error);
-      setIsLoading(false); 
+      console.error("Failed to remove auth state from localStorage", error);
     }
+    toast({ title: "Logged Out", description: "You have been successfully logged out." });
+    router.push('/login');
+    setIsLoading(false); // Ensure loading is set to false after push
   };
 
   return (
     <AuthContext.Provider 
       value={{ 
         user, 
-        firebaseUser, 
         isAuthenticated, 
         isLoading, 
-        signInWithGoogle, 
-        signInWithMicrosoft, 
-        signInWithFacebook, 
-        signInWithTwitter,
-        signUpWithEmail,
-        signInWithEmail, 
+        login,
         logout 
       }}
     >
