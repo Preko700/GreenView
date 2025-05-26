@@ -8,52 +8,54 @@
 
 ## 📋 Overview
 
-GreenView is a modern web application designed to help users monitor and visualize environmental data. Built with TypeScript and modern web technologies, GreenView provides an intuitive interface for tracking sustainability metrics, environmental indicators, and green initiatives.
+GreenView es una moderna aplicación web diseñada para ayudar a los usuarios a monitorear y visualizar datos ambientales. Desarrollada con TypeScript y tecnologías web modernas, GreenView proporciona una interfaz intuitiva para seguimiento de métricas de sostenibilidad, indicadores ambientales e iniciativas ecológicas.
+
+![GreenView Screenshot](docs/assets/screenshot.png)
 
 ## ✨ Features
 
-- **Real-time Environmental Monitoring**: Track key environmental metrics in real-time
-- **Interactive Dashboards**: Visualize data through customizable and interactive charts
-- **Mobile Responsive**: Access your environmental data on any device
-- **Data Export**: Download reports and data in multiple formats
-- **User Authentication**: Secure access to your environmental data
-- **Customizable Alerts**: Set thresholds and receive notifications
+- **Monitoreo Ambiental en Tiempo Real**: Seguimiento de métricas ambientales clave en tiempo real
+- **Tableros Interactivos**: Visualización de datos a través de gráficos personalizables e interactivos
+- **Responsive para Dispositivos Móviles**: Acceso a tus datos ambientales desde cualquier dispositivo
+- **Exportación de Datos**: Descarga de informes y datos en múltiples formatos
+- **Autenticación de Usuarios**: Acceso seguro a tus datos ambientales
+- **Alertas Personalizables**: Configuración de umbrales y recepción de notificaciones
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### Prerequisitos
 
-- Node.js (v18.0 or higher)
-- npm or yarn
+- Node.js (v16.0 o superior)
+- npm o yarn
 
-### Installation
+### Instalación
 
-1. Clone the repository:
+1. Clona el repositorio:
    ```bash
    git clone https://github.com/Preko700/GreenView.git
    cd GreenView
    ```
 
-2. Install dependencies:
+2. Instala las dependencias:
    ```bash
    npm install
-   # or
+   # o
    yarn install
    ```
 
-3. Create a `.env` file based on `.env.example`:
+3. Crea un archivo `.env` basado en `.env.example`:
    ```bash
    cp .env.example .env
    ```
 
-4. Start the development server:
+4. Inicia el servidor de desarrollo:
    ```bash
    npm run dev
-   # or
+   # o
    yarn dev
    ```
 
-5. Open your browser and navigate to `http://localhost:3000`
+5. Abre tu navegador y navega a `http://localhost:3000`
 
 ## 💻 Technologies Used
 
@@ -61,62 +63,97 @@ GreenView is a modern web application designed to help users monitor and visuali
   - TypeScript
   - React
   - CSS/SCSS
-  - Chart.js for data visualization
+  - Chart.js para visualización de datos
 
 - **Backend**:
-  - Node.js with Express
+  - Node.js con Express
   - TypeScript
-  - Firebase and SQLite (or your database of choice)
+  - MongoDB (o tu base de datos preferida)
 
-- **DevOps & Tools**:
+- **DevOps & Herramientas**:
   - Docker
-  - GitHub Actions for CI/CD
-  - Jest for testing
+  - GitHub Actions para CI/CD
+  - Jest para testing
+
+## 📐 System Design
+
+### Arquitectura del Software
+
+La arquitectura de GreenView está diseñada para proporcionar una experiencia de usuario fluida con un rendimiento óptimo y una alta escalabilidad.
+
+![Arquitectura GreenView](docs/diagrams/Arquitectura%20Greenview.png)
+
+La arquitectura sigue un modelo de capas bien definidas:
+- **Capa Frontend**: Implementada con React y TypeScript, maneja la interfaz de usuario y la interacción del usuario.
+- **Capa Backend**: Basada en Node.js y TypeScript, procesa las solicitudes y gestiona la lógica de negocio.
+- **Capa de Datos**: Almacena y recupera información de las bases de datos y caché.
+- **Servicios Externos**: Integración con servicios de autenticación, notificaciones y APIs de datos ambientales.
+
+### Modelo de Clases
+
+El siguiente diagrama UML muestra las principales entidades del sistema y sus relaciones:
+
+![UML GreenView](docs/diagrams/UML%20Greenview.png)
+
+Este modelo de clases representa las entidades clave de GreenView:
+- **Usuario**: Gestiona los perfiles de usuario y sus preferencias
+- **MacetaInteligente**: Representa el dispositivo físico con sus sensores y actuadores
+- **Ventilador**: Componente para gestionar la circulación del aire
+- **SistemaSensores**: Maneja la recolección de datos ambientales
+- **DatosSensores**: Almacena las mediciones de los sensores
+- **Alerta**: Notifica sobre condiciones que requieren atención
 
 ## 📈 Project Structure
 
 ```
 GreenView/
-├── src/                # Source files
-│   ├── components/     # React components
+├── src/                # Archivos fuente
+│   ├── components/     # Componentes React
 │   ├── hooks/          # Custom React hooks
-│   ├── pages/          # Application pages
-│   ├── services/       # API services
-│   ├── types/          # TypeScript type definitions
-│   ├── utils/          # Utility functions
-│   └── App.tsx         # Main application component
-├── public/             # Static files
-├── tests/              # Test files
-├── .env.example        # Example environment variables
-├── tsconfig.json       # TypeScript configuration
-└── package.json        # Project dependencies
+│   ├── pages/          # Páginas de la aplicación
+│   ├── services/       # Servicios API
+│   ├── types/          # Definiciones de tipos TypeScript
+│   ├── utils/          # Funciones de utilidad
+│   └── App.tsx         # Componente principal de la aplicación
+├── public/             # Archivos estáticos
+├── tests/              # Archivos de test
+├── docs/               # Documentación
+│   ├── assets/         # Recursos e imágenes
+│   └── diagrams/       # Diagramas del sistema
+├── .env.example        # Variables de entorno de ejemplo
+├── tsconfig.json       # Configuración de TypeScript
+└── package.json        # Dependencias del proyecto
 ```
+
+## 📚 Documentation
+
+Para documentación detallada, visita [nuestra wiki](https://github.com/Preko700/GreenView/wiki) o revisa el directorio `docs/`.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+¡Las contribuciones son bienvenidas! No dudes en enviar un Pull Request.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork del repositorio
+2. Crea tu rama de funcionalidad (`git checkout -b feature/amazing-feature`)
+3. Haz commit de tus cambios (`git commit -m 'Add some amazing feature'`)
+4. Push a la rama (`git push origin feature/amazing-feature`)
+5. Abre un Pull Request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Este proyecto está licenciado bajo la Licencia MIT - consulta el archivo [LICENSE](LICENSE) para más detalles.
 
 ## 📞 Contact
 
-- **Developer**: [Adrián Monge Mairena](https://github.com/Preko700)
-- **Project Link**: [https://github.com/Preko700/GreenView](https://github.com/Preko700/GreenView)
+- **Desarrollador**: [Adrián Monge Mairena](https://github.com/Preko700)
+- **Link del Proyecto**: [https://github.com/Preko700/GreenView](https://github.com/Preko700/GreenView)
 
 ## 🙏 Acknowledgments
 
-- All contributors who have helped this project
-- Open source libraries used in this project
-- Environmental data providers
+- Todos los colaboradores que han ayudado en este proyecto
+- Librerías open source utilizadas
+- Proveedores de datos ambientales
 
 ---
 
-<p align="center">Made with ❤️ for a greener future</p>
+<p align="center">Hecho con ❤️ para un futuro más verde</p>
