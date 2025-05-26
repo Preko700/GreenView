@@ -10,8 +10,6 @@
 
 GreenView es una moderna aplicación web diseñada para ayudar a los usuarios a monitorear y visualizar datos ambientales. Desarrollada con TypeScript y tecnologías web modernas, GreenView proporciona una interfaz intuitiva para seguimiento de métricas de sostenibilidad, indicadores ambientales e iniciativas ecológicas.
 
-![GreenView Screenshot](docs/assets/screenshot.png)
-
 ## ✨ Features
 
 - **Monitoreo Ambiental en Tiempo Real**: Seguimiento de métricas ambientales clave en tiempo real
@@ -81,7 +79,7 @@ GreenView es una moderna aplicación web diseñada para ayudar a los usuarios a 
 
 La arquitectura de GreenView está diseñada para proporcionar una experiencia de usuario fluida con un rendimiento óptimo y una alta escalabilidad.
 
-![Arquitectura GreenView](docs/diagrams/Arquitectura%20Greenview.png)
+![Arquitectura GreenView](Arquitectura%20Greenview.png)
 
 La arquitectura sigue un modelo de capas bien definidas:
 - **Capa Frontend**: Implementada con React y TypeScript, maneja la interfaz de usuario y la interacción del usuario.
@@ -93,7 +91,7 @@ La arquitectura sigue un modelo de capas bien definidas:
 
 El siguiente diagrama UML muestra las principales entidades del sistema y sus relaciones:
 
-![UML GreenView](docs/diagrams/UML%20Greenview.png)
+![UML GreenView](UML%20Greenview.png)
 
 Este modelo de clases representa las entidades clave de GreenView:
 - **Usuario**: Gestiona los perfiles de usuario y sus preferencias
@@ -124,10 +122,6 @@ GreenView/
 ├── tsconfig.json       # Configuración de TypeScript
 └── package.json        # Dependencias del proyecto
 ```
-
-## 📚 Documentation
-
-Para documentación detallada, visita [nuestra wiki](https://github.com/Preko700/GreenView/wiki) o revisa el directorio `docs/`.
 
 ## 🤝 Contributing
 
