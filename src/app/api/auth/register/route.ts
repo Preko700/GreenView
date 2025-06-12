@@ -1,15 +1,17 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getDb, hashPassword } from '@/lib/db';
-import type { RegistrationCredentials } from '@/lib/types'; // Assuming this type exists
+import type { RegistrationCredentials, User } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, country } = (await request.json()) as RegistrationCredentials & {country?: string};
+    const { name, email: originalEmail, password, country } = (await request.json()) as RegistrationCredentials & {country?: string};
 
-    if (!name || !email || !password) {
+    if (!name || !originalEmail || !password) {
       return NextResponse.json({ message: 'Name, email, and password are required' }, { status: 400 });
     }
+
+    const email = originalEmail.toLowerCase(); // Convert to lowercase
 
     // Basic email validation
     if (!/\S+@\S+\.\S+/.test(email)) {
@@ -21,7 +23,7 @@ export async function POST(request: NextRequest) {
 
 
     const db = await getDb();
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', email);
+    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', email); // Use lowercase email for check
 
     if (existingUser) {
       return NextResponse.json({ message: 'User with this email already exists' }, { status: 409 });
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
     const result = await db.run(
       'INSERT INTO users (name, email, password, country, registrationDate) VALUES (?, ?, ?, ?, ?)',
       name,
-      email,
+      email, // Store lowercase email
       hashedPassword,
       country || null,
       registrationDate
@@ -43,13 +45,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: 'Failed to register user' }, { status: 500 });
     }
 
-    const newUser = {
+    const newUser: User = { // Ensure type matches the User interface
         id: result.lastID,
         name,
-        email,
-        country,
+        email, // Return lowercase email
+        country: country || null,
         registrationDate,
-    }
+        profileImageUrl: null, // Add default or null for profileImageUrl if not set
+    };
 
     return NextResponse.json({ message: 'User registered successfully', user: newUser }, { status: 201 });
   } catch (error) {
