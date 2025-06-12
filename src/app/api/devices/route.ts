@@ -6,7 +6,8 @@ import { z } from 'zod';
 
 const deviceSchema = z.object({
   serialNumber: z.string().min(1, "Serial number is required"),
-  hardwareIdentifier: z.string().min(1, "Hardware identifier is required"),
+  // hardwareIdentifier es ahora opcional en el payload de entrada. Se generará si no se provee.
+  hardwareIdentifier: z.string().min(1, "Hardware identifier is required").optional(),
   name: z.string().min(1, "Device name is required"),
   plantType: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
@@ -23,7 +24,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Invalid input', errors: validation.error.format() }, { status: 400 });
     }
 
-    const { serialNumber, hardwareIdentifier, name, plantType, location, isPoweredByBattery, userId } = validation.data;
+    const { serialNumber, name, plantType, location, isPoweredByBattery, userId } = validation.data;
+    
+    // Generar hardwareIdentifier si no se proporciona
+    const hardwareIdentifier = validation.data.hardwareIdentifier || `${serialNumber}_HWID_${Date.now()}`;
+
 
     const db = await getDb();
 
@@ -33,29 +38,29 @@ export async function POST(request: NextRequest) {
     }
     const existingDeviceByHwId = await db.get('SELECT hardwareIdentifier FROM devices WHERE hardwareIdentifier = ?', hardwareIdentifier);
     if (existingDeviceByHwId) {
-      return NextResponse.json({ message: 'Device with this hardware identifier already exists' }, { status: 409 });
+      // Esto podría pasar si se genera un HWID que colisiona, aunque es poco probable con el timestamp.
+      // O si el usuario intenta registrar un HWID que ya existe (si se permitiera ingresarlo).
+      return NextResponse.json({ message: 'Device with this hardware identifier already exists or generated ID collided.' }, { status: 409 });
     }
 
     const activationDate = Date.now();
-    // Warranty for 1 year
     const warrantyEndDate = activationDate + (365 * 24 * 60 * 60 * 1000); 
 
     await db.run(
       'INSERT INTO devices (serialNumber, userId, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       serialNumber,
       userId,
-      hardwareIdentifier,
+      hardwareIdentifier, // Usar el HWID (proporcionado o generado)
       name,
       plantType,
       location,
       activationDate,
       warrantyEndDate,
-      true, // isActive by default
+      true, 
       isPoweredByBattery,
-      null // lastUpdateTimestamp
+      null 
     );
     
-    // Create default settings for this new device
     await db.run(
         `INSERT INTO device_settings (
             deviceId, measurementInterval, autoIrrigation, irrigationThreshold, 
@@ -63,7 +68,7 @@ export async function POST(request: NextRequest) {
             photoCaptureInterval, temperatureUnit,
             desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        serialNumber, // deviceId is the serialNumber
+        serialNumber, 
         defaultDeviceSettings.measurementInterval,
         defaultDeviceSettings.autoIrrigation,
         defaultDeviceSettings.irrigationThreshold,
@@ -80,7 +85,7 @@ export async function POST(request: NextRequest) {
     
     const newDevice: Partial<Device> = { 
         serialNumber,
-        hardwareIdentifier,
+        hardwareIdentifier, // Devolver el HWID usado
         name,
         plantType,
         location,
@@ -128,7 +133,7 @@ export async function GET(request: NextRequest) {
     const devices: Device[] = await db.all(sqlQuery, userId);
     return NextResponse.json(devices, { status: 200 });
   } catch (error: any) {
-    console.error(`Error fetching devices from API (server log). Query was: ${sqlQuery}. Error:`, error); 
+    console.error(`Error fetching devices from API (server log): Query was: ${sqlQuery}. Error:`, error.message, error.stack); 
     let clientErrorMessage = 'An internal server error occurred while fetching devices.';
     let errorDetails = error.message;
 
@@ -143,3 +148,4 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: clientErrorMessage, details: errorDetails }, { status: 500 });
   }
 }
+

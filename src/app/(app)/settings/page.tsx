@@ -44,7 +44,7 @@ const userSettingsSchema = z.object({
 
 const deviceRegistrationSchema = z.object({
   serialNumber: z.string().min(3, "Serial number must be at least 3 characters."),
-  hardwareIdentifier: z.string().min(3, "Hardware Identifier must be at least 3 characters."),
+  // hardwareIdentifier: z.string().min(3, "Hardware Identifier must be at least 3 characters."), // Removido
   name: z.string().min(3, "Device name must be at least 3 characters."),
   plantType: z.string().optional(),
   location: z.string().optional(),
@@ -88,7 +88,7 @@ export default function SettingsPage() {
 
   const deviceRegistrationForm = useForm<z.infer<typeof deviceRegistrationSchema>>({
     resolver: zodResolver(deviceRegistrationSchema),
-    defaultValues: { serialNumber: '', hardwareIdentifier: '', name: '', plantType: '', location: '', isPoweredByBattery: false },
+    defaultValues: { serialNumber: '', name: '', plantType: '', location: '', isPoweredByBattery: false },
   });
 
   const deviceForm = useForm<z.infer<typeof deviceSettingsSchema>>({
@@ -127,7 +127,7 @@ export default function SettingsPage() {
   const fetchDevices = useCallback(async () => {
     if (!authUser) return;
     setIsDevicesLoading(true);
-    let response; // Define response here to access it in catch block
+    let response; 
     try {
       response = await fetch(`/api/devices?userId=${authUser.id}`);
       if (!response.ok) {
@@ -136,10 +136,9 @@ export default function SettingsPage() {
           const errorData = await response.json();
           errorMessage = errorData.message || errorMessage;
         } catch (e) {
-          // Not a JSON error response, or JSON parsing failed
-          const textError = await response.text();
+          const textError = await response.text().catch(() => "Server returned an unreadable error.");
           console.error("Non-JSON error response from /api/devices:", textError);
-          errorMessage = `Failed to fetch devices. Server returned: ${response.status} ${response.statusText}`;
+          errorMessage = `Failed to fetch devices. Server returned: ${response.status} ${response.statusText}. Details: ${textError}`;
         }
         throw new Error(errorMessage);
       }
@@ -149,8 +148,8 @@ export default function SettingsPage() {
         setSelectedDeviceId(data[0].serialNumber);
       } else if (data.length === 0) {
         setSelectedDeviceId(undefined);
-        setCurrentDeviceSettings(null); // Clear settings if no devices
-        deviceForm.reset({ // Reset form to defaults if no devices
+        setCurrentDeviceSettings(null); 
+        deviceForm.reset({ 
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
             temperatureUnit: TemperatureUnit.CELSIUS,
@@ -159,7 +158,7 @@ export default function SettingsPage() {
     } catch (error: any) {
       toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
       console.error("Error fetching devices:", error.message);
-      setDevices([]); // Clear devices on error
+      setDevices([]); 
       setSelectedDeviceId(undefined);
       setCurrentDeviceSettings(null);
     } finally {
@@ -187,7 +186,8 @@ export default function SettingsPage() {
                 const errorData = await response.json();
                 errorMsg = errorData.message || errorMsg;
              } catch(e) {
-                errorMsg = `Failed to fetch settings: ${response.status} ${response.statusText}`;
+                const textError = await response.text().catch(() => "Server returned an unreadable error.");
+                errorMsg = `Failed to fetch settings: ${response.status} ${response.statusText}. Details: ${textError}`;
              }
              throw new Error(errorMsg);
           }
@@ -216,7 +216,6 @@ export default function SettingsPage() {
         }
       } else {
         setCurrentDeviceSettings(null);
-        // Reset to defaults if no device is selected
         deviceForm.reset({
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
@@ -225,12 +224,9 @@ export default function SettingsPage() {
       }
     };
     
-    // Only fetch settings if a device is selected, otherwise reset form.
     if (selectedDeviceId) {
         fetchDeviceSettings();
     } else {
-        // If no device is selected (e.g., after deleting all devices or initial load with no devices)
-        // ensure the form is reset and current settings are cleared.
         setCurrentDeviceSettings(null);
         deviceForm.reset({
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
@@ -242,11 +238,10 @@ export default function SettingsPage() {
 
   const handleUserSave = async (values: z.infer<typeof userSettingsSchema>) => {
     setIsUserSaving(true);
-    // TODO: Implement actual API call to update user profile
     await new Promise(resolve => setTimeout(resolve, 1000)); 
     console.log("User settings saved (mock):", values);
     setCurrentUser(prev => prev ? {...prev, ...values, email: values.email.toLowerCase()} : null);
-     if (authUser) { // Update authUser's email in context if it changed.
+     if (authUser) { 
         authUser.name = values.name;
         authUser.email = values.email.toLowerCase();
         authUser.country = values.country;
@@ -262,6 +257,7 @@ export default function SettingsPage() {
     }
     setIsDeviceRegistering(true);
     try {
+      // hardwareIdentifier no se envía desde el form, la API lo manejará
       const response = await fetch('/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -272,8 +268,8 @@ export default function SettingsPage() {
       
       toast({ title: "Device Registered", description: `${data.device.name} has been added.` });
       deviceRegistrationForm.reset();
-      await fetchDevices(); // Refetch devices to update the list and potentially select the new one
-      setSelectedDeviceId(data.device.serialNumber); // Select the new device
+      await fetchDevices(); 
+      setSelectedDeviceId(data.device.serialNumber); 
     } catch (error: any) {
       toast({ title: "Registration Failed", description: error.message, variant: "destructive" });
     } finally {
@@ -295,8 +291,7 @@ export default function SettingsPage() {
         
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
         setCurrentDeviceSettings(data.settings); 
-        deviceForm.reset(data.settings); // Reset form with new settings from API
-        // deviceForm.formState.isDirty = false; // This might not be needed if reset handles it
+        deviceForm.reset(data.settings); 
 
     } catch (error: any) {
         toast({ title: "Save Failed", description: error.message, variant: "destructive" });
@@ -317,7 +312,7 @@ export default function SettingsPage() {
           <CardTitle>User Profile</CardTitle>
           <CardDescription>Update your personal information.</CardDescription>
         </CardHeader>
-        {userForm.formState.defaultValues ? ( // Check if form has been initialized
+        {userForm.formState.defaultValues ? ( 
           <Form {...userForm}>
             <form onSubmit={userForm.handleSubmit(handleUserSave)}>
               <CardContent className="space-y-4">
@@ -341,7 +336,9 @@ export default function SettingsPage() {
           <form onSubmit={deviceRegistrationForm.handleSubmit(handleDeviceRegister)}>
             <CardContent className="space-y-4">
               <FormField control={deviceRegistrationForm.control} name="serialNumber" render={({ field }) => ( <FormItem><FormLabel>Serial Number</FormLabel><FormControl><Input placeholder="Device Serial Number (e.g., GH-00X)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+              {/* El campo Hardware Identifier se ha removido del formulario
               <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier</FormLabel><FormControl><Input placeholder="Unique ID from your device (e.g., ARDUINO_XYZ)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+              */}
               <FormField control={deviceRegistrationForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Device Name</FormLabel><FormControl><Input placeholder="e.g., My Balcony Garden" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="plantType" render={({ field }) => ( <FormItem><FormLabel>Plant Type (Optional)</FormLabel><FormControl><Input placeholder="e.g., Tomatoes, Herbs" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormItem> )}/>
