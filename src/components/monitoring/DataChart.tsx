@@ -1,7 +1,9 @@
+
 "use client";
 
 import { useMemo } from 'react';
-import type { SensorData, SensorType } from '@/lib/types';
+import type { SensorData, SensorType as AppSensorType } from '@/lib/types'; // Renamed SensorType to AppSensorType to avoid conflict with component prop name
+import { SensorType } from '@/lib/types'; // Added explicit import
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   ChartContainer,
@@ -16,11 +18,11 @@ import { format } from 'date-fns';
 
 interface DataChartProps {
   sensorData: SensorData[];
-  sensorType: SensorType;
+  sensorType: AppSensorType; // Use the renamed type
   title?: string;
 }
 
-const sensorTypeToFriendlyName: Record<SensorType, string> = {
+const sensorTypeToFriendlyName: Record<AppSensorType, string> = {
   [SensorType.TEMPERATURE]: "Temperature",
   [SensorType.AIR_HUMIDITY]: "Air Humidity",
   [SensorType.SOIL_HUMIDITY]: "Soil Humidity",
@@ -132,3 +134,4 @@ export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
     </Card>
   );
 }
+
