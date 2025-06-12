@@ -1,14 +1,13 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DataChart } from '@/components/monitoring/DataChart';
-import { getMockHistoricalSensorData } from '@/data/mockData'; // Still using mock for historical data
+import { getMockHistoricalSensorData } from '@/data/mockData'; 
 import type { Device, SensorData } from '@/lib/types';
 import { SensorType } from '@/lib/types';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,8 +24,16 @@ export default function MonitoringPage() {
 
   const [device, setDevice] = useState<Device | null>(null);
   const [historicalData, setHistoricalData] = useState<{ [key in SensorType]?: SensorData[] }>({});
-  const [selectedSensorType, setSelectedSensorType] = useState<SensorType>(SensorType.TEMPERATURE);
   const [isLoading, setIsLoading] = useState(true);
+
+  const sensorTypesForDisplay: SensorType[] = [
+    SensorType.TEMPERATURE,
+    SensorType.AIR_HUMIDITY,
+    SensorType.SOIL_HUMIDITY,
+    SensorType.LIGHT,
+    SensorType.PH,
+    SensorType.WATER_LEVEL,
+  ];
 
   const fetchDeviceData = useCallback(async () => {
     if (deviceId && user) {
@@ -43,9 +50,9 @@ export default function MonitoringPage() {
         } else {
           const fetchedDevice: Device = await res.json();
           setDevice(fetchedDevice);
-          // Load mock historical data based on the fetched deviceId
+          
           const data: { [key in SensorType]?: SensorData[] } = {};
-          Object.values(SensorType).forEach(type => {
+          sensorTypesForDisplay.forEach(type => { // Populate based on sensorTypesForDisplay
             data[type] = getMockHistoricalSensorData(fetchedDevice.serialNumber, type);
           });
           setHistoricalData(data);
@@ -60,23 +67,22 @@ export default function MonitoringPage() {
     } else if (!user && deviceId) {
       setIsLoading(true); 
     }
-  }, [deviceId, user, toast]);
+  }, [deviceId, user, toast, sensorTypesForDisplay]); // Added sensorTypesForDisplay to dependencies
 
   useEffect(() => {
     fetchDeviceData();
   }, [fetchDeviceData]);
 
-
-  const currentSensorData = useMemo(() => {
-    return historicalData[selectedSensorType] || [];
-  }, [historicalData, selectedSensorType]);
-
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 space-y-6">
-        <Skeleton className="h-10 w-1/2" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-80 w-full" />
+        <Skeleton className="h-10 w-1/2" /> {/* PageHeader title skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          {/* Render skeletons for charts */}
+          {[...Array(sensorTypesForDisplay.length > 0 ? Math.min(sensorTypesForDisplay.length, 4) : 2)].map((_, i) => ( // Show up to 4 skeletons, or 2 if no types defined yet
+            <Skeleton key={i} className="h-[400px] w-full" /> 
+          ))}
+        </div>
       </div>
     );
   }
@@ -99,16 +105,6 @@ export default function MonitoringPage() {
       </div>
     );
   }
-  
-  const sensorTypesForDisplay = [
-    SensorType.TEMPERATURE,
-    SensorType.AIR_HUMIDITY,
-    SensorType.SOIL_HUMIDITY,
-    SensorType.LIGHT,
-    SensorType.PH,
-    SensorType.WATER_LEVEL,
-  ];
-
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6">
@@ -122,21 +118,15 @@ export default function MonitoringPage() {
         }
       />
 
-      <Tabs value={selectedSensorType} onValueChange={(value) => setSelectedSensorType(value as SensorType)} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 mb-6">
-          {sensorTypesForDisplay.map(type => (
-            <TabsTrigger key={type} value={type}>
-              {type.replace('_', ' ')}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
         {sensorTypesForDisplay.map(type => (
-          <TabsContent key={type} value={type}>
-             <DataChart sensorData={historicalData[type] || []} sensorType={type} />
-          </TabsContent>
+          <DataChart 
+            key={type} 
+            sensorData={historicalData[type] || []} 
+            sensorType={type} 
+          />
         ))}
-      </Tabs>
+      </div>
     </div>
   );
 }
