@@ -36,6 +36,7 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS devices (
         serialNumber TEXT PRIMARY KEY,
         userId INTEGER NOT NULL,
+        hardwareIdentifier TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         plantType TEXT,
         location TEXT,
@@ -43,6 +44,7 @@ export async function getDb() {
         warrantyEndDate INTEGER,
         isActive BOOLEAN DEFAULT TRUE,
         isPoweredByBattery BOOLEAN DEFAULT FALSE,
+        lastUpdateTimestamp INTEGER,
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
@@ -50,14 +52,18 @@ export async function getDb() {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
           deviceId TEXT PRIMARY KEY,
-          measurementInterval INTEGER DEFAULT 5,
+          measurementInterval INTEGER DEFAULT 5,         -- minutes
           autoIrrigation BOOLEAN DEFAULT TRUE,
-          irrigationThreshold INTEGER DEFAULT 30,
+          irrigationThreshold INTEGER DEFAULT 30,        -- percentage
           autoVentilation BOOLEAN DEFAULT TRUE,
-          temperatureThreshold REAL DEFAULT 30.0,
-          temperatureFanOffThreshold REAL DEFAULT 28.0,
-          photoCaptureInterval INTEGER DEFAULT 6,
+          temperatureThreshold REAL DEFAULT 30.0,        -- degrees
+          temperatureFanOffThreshold REAL DEFAULT 28.0,  -- degrees
+          photoCaptureInterval INTEGER DEFAULT 6,        -- hours
           temperatureUnit TEXT DEFAULT '${TemperatureUnit.CELSIUS}',
+          desiredLightState BOOLEAN DEFAULT FALSE,
+          desiredFanState BOOLEAN DEFAULT FALSE,
+          desiredIrrigationState BOOLEAN DEFAULT FALSE,
+          desiredUvLightState BOOLEAN DEFAULT FALSE,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -66,16 +72,17 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS sensor_readings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         deviceId TEXT NOT NULL,
-        type TEXT NOT NULL,
+        type TEXT NOT NULL, -- SensorType enum as string
         value REAL NOT NULL,
         unit TEXT,
-        timestamp INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL, -- Unix timestamp in milliseconds
         FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
 
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
 
   }
   return db;
@@ -99,4 +106,9 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   temperatureFanOffThreshold: 28,
   photoCaptureInterval: 6, 
   temperatureUnit: TemperatureUnit.CELSIUS,
+  desiredLightState: false,
+  desiredFanState: false,
+  desiredIrrigationState: false,
+  desiredUvLightState: false,
 };
+

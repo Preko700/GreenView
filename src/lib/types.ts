@@ -20,8 +20,8 @@ export interface RegistrationCredentials extends EmailPasswordCredentials {
 
 export interface Device {
   serialNumber: string;
-  // userId is implied by the context in which devices are fetched (for a specific user)
-  // but can be included if needed for broader admin views later.
+  hardwareIdentifier: string;
+  // userId is fetched alongside in API routes when needed
   name: string;
   plantType?: string | null;
   location?: string | null;
@@ -29,7 +29,7 @@ export interface Device {
   warrantyEndDate?: number | null;
   isActive: boolean;
   isPoweredByBattery: boolean;
-  lastUpdateTimestamp?: number; // Will be useful for RF-005
+  lastUpdateTimestamp?: number;
 }
 
 export enum SensorType {
@@ -39,16 +39,16 @@ export enum SensorType {
   PH = "PH",
   LIGHT = "LIGHT",
   WATER_LEVEL = "WATER_LEVEL",
-  DRAINAGE = "DRAINAGE",
+  DRAINAGE = "DRAINAGE", // Not in Arduino code yet, but keeping
 }
 
-export interface SensorData {
-  id: string;
+export interface SensorReading {
+  id?: number; // Optional as it's auto-incremented
   deviceId: string;
-  type: SensorType;
+  type: SensorType | string; // Allow string for flexibility if Arduino sends custom types
   value: number;
-  timestamp: number;
   unit?: string; 
+  timestamp: number;
 }
 
 export interface DeviceImage {
@@ -83,7 +83,7 @@ export enum TemperatureUnit {
 }
 
 export interface DeviceSettings {
-  deviceId: string; // This will be the serialNumber of the device
+  deviceId: string;
   measurementInterval: number; // minutes
   autoIrrigation: boolean;
   autoVentilation: boolean;
@@ -92,6 +92,10 @@ export interface DeviceSettings {
   temperatureFanOffThreshold: number; // degrees
   photoCaptureInterval: number; // hours
   temperatureUnit: TemperatureUnit;
+  desiredLightState: boolean;
+  desiredFanState: boolean;
+  desiredIrrigationState: boolean;
+  desiredUvLightState: boolean;
 }
 
 export interface NavItem {

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { mockUser } from '@/data/mockData'; // Keep mockUser for user profile section for now
+import { mockUser } from '@/data/mockData'; 
 import type { User, Device, DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
 import { Loader2, Save, PlusCircle } from 'lucide-react';
@@ -44,6 +44,7 @@ const userSettingsSchema = z.object({
 
 const deviceRegistrationSchema = z.object({
   serialNumber: z.string().min(3, "Serial number must be at least 3 characters."),
+  hardwareIdentifier: z.string().min(3, "Hardware Identifier must be at least 3 characters."),
   name: z.string().min(3, "Device name must be at least 3 characters."),
   plantType: z.string().optional(),
   location: z.string().optional(),
@@ -87,7 +88,7 @@ export default function SettingsPage() {
 
   const deviceRegistrationForm = useForm<z.infer<typeof deviceRegistrationSchema>>({
     resolver: zodResolver(deviceRegistrationSchema),
-    defaultValues: { serialNumber: '', name: '', plantType: '', location: '', isPoweredByBattery: false },
+    defaultValues: { serialNumber: '', hardwareIdentifier: '', name: '', plantType: '', location: '', isPoweredByBattery: false },
   });
 
   const deviceForm = useForm<z.infer<typeof deviceSettingsSchema>>({
@@ -105,16 +106,24 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
+    // Still using mockUser for user profile for now
     setCurrentUser(mockUser); 
-    if (mockUser) {
+    if (mockUser && authUser) { // Use authUser's email if available, otherwise mockUser's
       userForm.reset({
         name: mockUser.name,
-        email: mockUser.email,
+        email: authUser?.email || mockUser.email,
         country: mockUser.country,
         notificationsEnabled: true, 
       });
+    } else if (mockUser) {
+         userForm.reset({
+            name: mockUser.name,
+            email: mockUser.email,
+            country: mockUser.country,
+            notificationsEnabled: true,
+        });
     }
-  }, [userForm]);
+  }, [userForm, authUser]);
 
   const fetchDevices = async () => {
     if (!authUser) return;
@@ -158,11 +167,20 @@ export default function SettingsPage() {
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
-          deviceForm.reset(data);
+          // Only reset fields managed by deviceSettingsSchema
+          deviceForm.reset({
+            measurementInterval: data.measurementInterval,
+            autoIrrigation: data.autoIrrigation,
+            irrigationThreshold: data.irrigationThreshold,
+            autoVentilation: data.autoVentilation,
+            temperatureThreshold: data.temperatureThreshold,
+            temperatureFanOffThreshold: data.temperatureFanOffThreshold,
+            photoCaptureInterval: data.photoCaptureInterval,
+            temperatureUnit: data.temperatureUnit,
+          });
         } catch (error: any) {
           toast({ title: "Error", description: `Could not load settings for ${selectedDeviceId}: ${error.message}`, variant: "destructive" });
           console.error("Error fetching device settings:", error);
-          // Reset to client-side defaults if API call fails or no settings found (API should return defaults if none exist though)
           deviceForm.reset({ 
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
@@ -183,7 +201,6 @@ export default function SettingsPage() {
     if (selectedDeviceId) {
         fetchDeviceSettings();
     } else {
-        // If no device is selected, ensure form is reset to initial defaults.
         deviceForm.reset({
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
@@ -236,14 +253,25 @@ export default function SettingsPage() {
         const response = await fetch(`/api/device-settings/${selectedDeviceId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            // Send only the values relevant to the deviceSettingsSchema
             body: JSON.stringify({ ...values, userId: authUser.id }), 
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to save device settings');
         
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
+        // Update currentDeviceSettings with the full response, then reset form with schema-relevant parts
         setCurrentDeviceSettings(data.settings); 
-        deviceForm.reset(data.settings); 
+        deviceForm.reset({
+            measurementInterval: data.settings.measurementInterval,
+            autoIrrigation: data.settings.autoIrrigation,
+            irrigationThreshold: data.settings.irrigationThreshold,
+            autoVentilation: data.settings.autoVentilation,
+            temperatureThreshold: data.settings.temperatureThreshold,
+            temperatureFanOffThreshold: data.settings.temperatureFanOffThreshold,
+            photoCaptureInterval: data.settings.photoCaptureInterval,
+            temperatureUnit: data.settings.temperatureUnit,
+        }); 
         deviceForm.formState.isDirty = false;
 
     } catch (error: any) {
@@ -288,7 +316,8 @@ export default function SettingsPage() {
         <Form {...deviceRegistrationForm}>
           <form onSubmit={deviceRegistrationForm.handleSubmit(handleDeviceRegister)}>
             <CardContent className="space-y-4">
-              <FormField control={deviceRegistrationForm.control} name="serialNumber" render={({ field }) => ( <FormItem><FormLabel>Serial Number</FormLabel><FormControl><Input placeholder="Device Serial Number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+              <FormField control={deviceRegistrationForm.control} name="serialNumber" render={({ field }) => ( <FormItem><FormLabel>Serial Number</FormLabel><FormControl><Input placeholder="Device Serial Number (e.g., GH-00X)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+              <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier</FormLabel><FormControl><Input placeholder="Unique ID from your device (e.g., ARDUINO_XYZ)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Device Name</FormLabel><FormControl><Input placeholder="e.g., My Balcony Garden" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="plantType" render={({ field }) => ( <FormItem><FormLabel>Plant Type (Optional)</FormLabel><FormControl><Input placeholder="e.g., Tomatoes, Herbs" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormItem> )}/>
@@ -331,9 +360,9 @@ export default function SettingsPage() {
 
               {selectedDeviceId && isDeviceSettingsLoading && <Skeleton className="h-96 w-full mt-4" />}
               
-              {selectedDeviceId && !isDeviceSettingsLoading && currentDeviceSettings && (
+              {selectedDeviceId && currentDeviceSettings && !isDeviceSettingsLoading && (
                 <div className="space-y-4 pt-4 border-t mt-4">
-                  <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min).</FormDescription> <FormMessage /> </FormItem> )}/>
+                  <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min). Arduino will poll for this setting.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
                   <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
                   
@@ -367,3 +396,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

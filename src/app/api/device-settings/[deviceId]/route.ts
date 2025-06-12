@@ -5,17 +5,17 @@ import type { DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
 import { z } from "zod";
 
-const deviceSettingsSchema = z.object({
+// This schema is for validating data sent from the settings page
+const deviceSettingsUpdateSchema = z.object({
   measurementInterval: z.coerce.number().min(1).max(60),
   autoIrrigation: z.boolean(),
   irrigationThreshold: z.coerce.number().min(10).max(90),
   autoVentilation: z.boolean(),
   temperatureThreshold: z.coerce.number().min(0).max(50),
-  temperatureFanOffThreshold: z.coerce.number().min(0).max(49), // Should be less than ON threshold
+  temperatureFanOffThreshold: z.coerce.number().min(0).max(49),
   photoCaptureInterval: z.coerce.number().min(1).max(24),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
-  // userId is needed for authorization check when saving, but not part of the settings object itself
-  userId: z.number().int().positive().optional(), 
+  userId: z.number().int().positive("User ID is required in request body for saving settings"), 
 });
 
 
@@ -27,7 +27,6 @@ export async function GET(
   const { searchParams } = new URL(request.url);
   const userIdParam = searchParams.get('userId');
 
-
   if (!userIdParam) {
     return NextResponse.json({ message: 'userId query parameter is required for authorization' }, { status: 400 });
   }
@@ -36,38 +35,48 @@ export async function GET(
     return NextResponse.json({ message: 'Invalid userId' }, { status: 400 });
   }
 
-
   if (!deviceId) {
     return NextResponse.json({ message: 'deviceId is required' }, { status: 400 });
   }
 
   try {
     const db = await getDb();
-    // First, verify the device belongs to the user
     const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ?', deviceId);
     if (!deviceOwner || deviceOwner.userId !== userId) {
         return NextResponse.json({ message: 'Device not found or not authorized for this user' }, { status: 403 });
     }
 
-
-    const settings: DeviceSettings | undefined = await db.get(
+    const settingsRow = await db.get(
       'SELECT * FROM device_settings WHERE deviceId = ?',
       deviceId
     );
 
-    if (settings) {
+    if (settingsRow) {
       // Ensure boolean values are correctly interpreted from DB (0/1)
-      return NextResponse.json({
-        ...settings,
-        autoIrrigation: !!settings.autoIrrigation,
-        autoVentilation: !!settings.autoVentilation,
-      }, { status: 200 });
+      const typedSettings: DeviceSettings = {
+        deviceId: settingsRow.deviceId,
+        measurementInterval: settingsRow.measurementInterval,
+        autoIrrigation: !!settingsRow.autoIrrigation,
+        irrigationThreshold: settingsRow.irrigationThreshold,
+        autoVentilation: !!settingsRow.autoVentilation,
+        temperatureThreshold: settingsRow.temperatureThreshold,
+        temperatureFanOffThreshold: settingsRow.temperatureFanOffThreshold,
+        photoCaptureInterval: settingsRow.photoCaptureInterval,
+        temperatureUnit: settingsRow.temperatureUnit as TemperatureUnit,
+        desiredLightState: !!settingsRow.desiredLightState,
+        desiredFanState: !!settingsRow.desiredFanState,
+        desiredIrrigationState: !!settingsRow.desiredIrrigationState,
+        desiredUvLightState: !!settingsRow.desiredUvLightState,
+      };
+      return NextResponse.json(typedSettings, { status: 200 });
     } else {
-      // RF-004: Return default settings if none exist for the device
-      // The default values are mostly handled by the table DDL, but we can explicitly return them here
-      // or rely on the client to use its own defaults if API returns 404.
-      // For consistency, let's return them.
-      return NextResponse.json({ deviceId, ...defaultDeviceSettings }, { status: 200 });
+      // This case should not happen if defaults are set on device registration
+      // But as a fallback, return full default structure
+      const fullDefaults: DeviceSettings = {
+        deviceId,
+        ...defaultDeviceSettings // This now includes desired states as false
+      };
+      return NextResponse.json(fullDefaults, { status: 200 });
     }
   } catch (error) {
     console.error(`Error fetching settings for device ${deviceId}:`, error);
@@ -79,48 +88,45 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { deviceId: string } }
 ) {
-  const deviceId = params.deviceId;
+  const currentDeviceId = params.deviceId; // Renamed to avoid conflict with deviceId in body
 
-  if (!deviceId) {
-    return NextResponse.json({ message: 'deviceId is required' }, { status: 400 });
+  if (!currentDeviceId) {
+    return NextResponse.json({ message: 'deviceId parameter is required' }, { status: 400 });
   }
 
   try {
     const body = await request.json();
     
-    // Validate incoming data (including userId for auth check)
-    const validation = deviceSettingsSchema.extend({
-        userId: z.number().int().positive("User ID is required in request body for saving settings"),
-    }).safeParse(body);
-
+    const validation = deviceSettingsUpdateSchema.safeParse(body);
 
     if (!validation.success) {
       return NextResponse.json({ message: 'Invalid input', errors: validation.error.format() }, { status: 400 });
     }
     
+    // Exclude userId from settingsToSave as it's only for auth
+    // desired...State fields are NOT updated here; they are managed by /api/device-control
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { userId, ...settingsToSave } = validation.data;
 
     const db = await getDb();
 
-    // Authorization: Check if the device belongs to the user trying to save settings
-    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ?', deviceId);
+    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ?', currentDeviceId);
     if (!deviceOwner || deviceOwner.userId !== userId) {
         return NextResponse.json({ message: 'Device not found or not authorized to change settings' }, { status: 403 });
     }
     
-    // Ensure temperatureFanOffThreshold is less than temperatureThreshold
     if (settingsToSave.temperatureFanOffThreshold >= settingsToSave.temperatureThreshold) {
         return NextResponse.json({ message: 'Ventilation Temp Off threshold must be less than Ventilation Temp On threshold.' }, { status: 400 });
     }
 
-
+    // Update only the fields relevant to user-configurable settings
+    // desired...State fields are intentionally omitted here.
     await db.run(
-      `INSERT OR REPLACE INTO device_settings (
-        deviceId, measurementInterval, autoIrrigation, irrigationThreshold, 
-        autoVentilation, temperatureThreshold, temperatureFanOffThreshold, 
-        photoCaptureInterval, temperatureUnit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      deviceId,
+      `UPDATE device_settings SET 
+        measurementInterval = ?, autoIrrigation = ?, irrigationThreshold = ?, 
+        autoVentilation = ?, temperatureThreshold = ?, temperatureFanOffThreshold = ?, 
+        photoCaptureInterval = ?, temperatureUnit = ?
+      WHERE deviceId = ?`,
       settingsToSave.measurementInterval,
       settingsToSave.autoIrrigation,
       settingsToSave.irrigationThreshold,
@@ -128,13 +134,36 @@ export async function POST(
       settingsToSave.temperatureThreshold,
       settingsToSave.temperatureFanOffThreshold,
       settingsToSave.photoCaptureInterval,
-      settingsToSave.temperatureUnit
+      settingsToSave.temperatureUnit,
+      currentDeviceId
     );
 
-    return NextResponse.json({ message: 'Device settings saved successfully', settings: { deviceId, ...settingsToSave} }, { status: 200 });
+    // Fetch the complete updated settings to return, including desired states which were not modified by this call
+    const updatedSettings = await db.get('SELECT * FROM device_settings WHERE deviceId = ?', currentDeviceId);
+     if (!updatedSettings) {
+        return NextResponse.json({ message: 'Failed to retrieve updated settings' }, { status: 500 });
+    }
+     const typedUpdatedSettings: DeviceSettings = {
+        deviceId: updatedSettings.deviceId,
+        measurementInterval: updatedSettings.measurementInterval,
+        autoIrrigation: !!updatedSettings.autoIrrigation,
+        irrigationThreshold: updatedSettings.irrigationThreshold,
+        autoVentilation: !!updatedSettings.autoVentilation,
+        temperatureThreshold: updatedSettings.temperatureThreshold,
+        temperatureFanOffThreshold: updatedSettings.temperatureFanOffThreshold,
+        photoCaptureInterval: updatedSettings.photoCaptureInterval,
+        temperatureUnit: updatedSettings.temperatureUnit as TemperatureUnit,
+        desiredLightState: !!updatedSettings.desiredLightState,
+        desiredFanState: !!updatedSettings.desiredFanState,
+        desiredIrrigationState: !!updatedSettings.desiredIrrigationState,
+        desiredUvLightState: !!updatedSettings.desiredUvLightState,
+      };
+
+
+    return NextResponse.json({ message: 'Device settings saved successfully', settings: typedUpdatedSettings }, { status: 200 });
 
   } catch (error) {
-    console.error(`Error saving settings for device ${deviceId}:`, error);
+    console.error(`Error saving settings for device ${currentDeviceId}:`, error);
     if (error instanceof z.ZodError) {
       return NextResponse.json({ message: 'Invalid input data', errors: error.format() }, { status: 400 });
     }
