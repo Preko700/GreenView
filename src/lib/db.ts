@@ -1,10 +1,9 @@
 
-'use server';
 import sqlite3 from 'sqlite3';
 import { open, type Database } from 'sqlite';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-import type { DeviceSettings } from '@/lib/types'; // Import DeviceSettings type
+import type { DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
@@ -62,6 +61,22 @@ export async function getDb() {
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS sensor_readings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        deviceId TEXT NOT NULL,
+        type TEXT NOT NULL,
+        value REAL NOT NULL,
+        unit TEXT,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
+      );
+    `);
+
+    await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
+
   }
   return db;
 }
@@ -76,12 +91,12 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
-  measurementInterval: 5, // RF-004: frecuencia de medición cada 5 minutos
-  autoIrrigation: true, // RF-004: riego automático activado
+  measurementInterval: 5, 
+  autoIrrigation: true, 
   irrigationThreshold: 30,
   autoVentilation: true,
   temperatureThreshold: 30,
   temperatureFanOffThreshold: 28,
-  photoCaptureInterval: 6, // RF-004: (implícito, pero buen default)
+  photoCaptureInterval: 6, 
   temperatureUnit: TemperatureUnit.CELSIUS,
 };
