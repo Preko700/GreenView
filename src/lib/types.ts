@@ -1,10 +1,11 @@
 
-// User type for simplified auth
+// User type for Firebase Auth
 export interface User {
-  // uid no longer needed from Firebase for this simple auth
-  email: string;
-  name: string | null; // Keep name for UserNav display
-  profileImageUrl?: string | null; // Keep for UserNav, will likely be undefined/null
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null;
+  // Add other Firebase user properties if needed
 }
 
 export interface EmailPasswordCredentials {
@@ -14,7 +15,6 @@ export interface EmailPasswordCredentials {
 
 export interface Device {
   serialNumber: string;
-  // userId: string; // This would previously match User['uid']. Consider if still needed or how to link if no real users.
   name: string;
   activationDate: number;
   warrantyEndDate: number;
@@ -61,7 +61,6 @@ export enum TicketStatus {
 
 export interface Ticket {
   id: string;
-  // userId: string; // Consider if still needed
   deviceId: string;
   title: string;
   description: string;

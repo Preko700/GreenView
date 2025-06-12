@@ -6,82 +6,109 @@ import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import { 
+  getAuth, 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut as firebaseSignOut,
+  updateProfile,
+  type User as FirebaseUser
+} from 'firebase/auth';
+import { auth as firebaseAuthService } from '@/lib/firebase'; // Use the initialized auth service
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: EmailPasswordCredentials) => Promise<void>;
+  register: (credentials: EmailPasswordCredentials & { name: string }) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY = 'simpleGreenViewAuth';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
-    try {
-      const storedAuth = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (storedAuth) {
-        const authData = JSON.parse(storedAuth);
-        if (authData.isAuthenticated && authData.user) {
-          setUser(authData.user);
-          setIsAuthenticated(true);
-        }
+    const unsubscribe = onAuthStateChanged(firebaseAuthService, (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        setUser({
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName,
+          photoURL: firebaseUser.photoURL,
+        });
+      } else {
+        setUser(null);
       }
-    } catch (error) {
-      console.error("Failed to load auth state from localStorage", error);
-      // Clear potentially corrupted storage
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
-    }
-    setIsLoading(false);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const login = async (credentials: EmailPasswordCredentials) => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-
-    // No actual validation, just "log in"
-    const displayName = credentials.email.split('@')[0] || "User";
-    const loggedInUser: User = {
-      email: credentials.email,
-      name: displayName,
-    };
-    
-    setUser(loggedInUser);
-    setIsAuthenticated(true);
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ isAuthenticated: true, user: loggedInUser }));
-    } catch (error) {
-      console.error("Failed to save auth state to localStorage", error);
+      await signInWithEmailAndPassword(firebaseAuthService, credentials.email, credentials.password);
+      // onAuthStateChanged will handle setting user state and navigation
+      toast({ title: "Login Successful", description: "Welcome back!" });
+      router.push('/dashboard'); 
+    } catch (error: any) {
+      console.error("Login error:", error);
+      toast({ title: "Login Failed", description: error.message || "Invalid email or password.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-    
-    toast({ title: "Login Successful", description: `Welcome back, ${displayName}!` });
-    router.push('/dashboard');
-    setIsLoading(false);
+  };
+
+  const register = async (credentials: EmailPasswordCredentials & { name: string }) => {
+    setIsLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(firebaseAuthService, credentials.email, credentials.password);
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: credentials.name });
+        // Update local user state immediately for better UX
+        setUser({
+            uid: userCredential.user.uid,
+            email: userCredential.user.email,
+            displayName: credentials.name, // Use the name provided during registration
+        });
+      }
+      toast({ title: "Registration Successful", description: `Welcome, ${credentials.name}!` });
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      toast({ title: "Registration Failed", description: error.message || "Could not create account.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const logout = async () => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    setUser(null);
-    setIsAuthenticated(false);
     try {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
-    } catch (error) {
-      console.error("Failed to remove auth state from localStorage", error);
+      await firebaseSignOut(firebaseAuthService);
+      // onAuthStateChanged will handle setting user to null
+      toast({ title: "Logged Out", description: "You have been successfully logged out." });
+      router.push('/login');
+    } catch (error: any) {
+      console.error("Logout error:", error);
+      toast({ title: "Logout Failed", description: error.message || "An error occurred during logout.", variant: "destructive" });
+    } finally {
+      // Ensure isLoading is false even if router.push might not complete immediately in some tests/setups
+      // Small delay to allow onAuthStateChanged to potentially fire first if needed, though usually push is sufficient.
+      setTimeout(() => setIsLoading(false), 0);
     }
-    toast({ title: "Logged Out", description: "You have been successfully logged out." });
-    router.push('/login');
-    setIsLoading(false); // Ensure loading is set to false after push
   };
+  
+  const isAuthenticated = !!user && !isLoading;
+
 
   return (
     <AuthContext.Provider 
@@ -90,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated, 
         isLoading, 
         login,
+        register,
         logout 
       }}
     >

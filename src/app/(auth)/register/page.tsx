@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/Logo';
-import { Loader2, LogIn, Mail } from 'lucide-react';
+import { Loader2, UserPlus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,37 +22,42 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import type { EmailPasswordCredentials } from '@/lib/types';
 
-const loginSchema = z.object({
+const registerSchema = z.object({
+  name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+  confirmPassword: z.string().min(6, { message: "Password must be at least 6 characters." })
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"], // path of error
 });
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, isLoading: authIsLoading } = useAuth();
+  const { register, isLoading: authIsLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
-  const form = useForm<z.infer<typeof loginSchema>>({
-    resolver: zodResolver(loginSchema),
+  const form = useForm<z.infer<typeof registerSchema>>({
+    resolver: zodResolver(registerSchema),
     defaultValues: {
+      name: "",
       email: "",
       password: "",
+      confirmPassword: "",
     },
   });
 
-  const handleEmailSignIn = async (values: z.infer<typeof loginSchema>) => {
+  const handleRegister = async (values: z.infer<typeof registerSchema>) => {
     setIsSubmitting(true);
     try {
-      await login(values);
-      // Navigation is handled by the login function in AuthContext or effect hooks
+      await register({name: values.name, email: values.email, password: values.password });
+      // Navigation is handled by the register function in AuthContext or effect hooks
     } catch (error: any) {
-      // Firebase errors are typically handled within the AuthContext login and displayed via toast
-      // This catch is a fallback.
-      console.error("Login page error:", error);
-      toast({ title: "Login Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
+      // Firebase errors are typically handled within the AuthContext register and displayed via toast
+      console.error("Registration page error:", error);
+      toast({ title: "Registration Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -64,12 +69,25 @@ export default function LoginPage() {
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="items-center text-center">
         <Logo className="h-12 w-12" />
-        <CardTitle className="mt-2 text-2xl">Welcome Back to GreenView</CardTitle>
-        <CardDescription>Sign in to continue to your dashboard.</CardDescription>
+        <CardTitle className="mt-2 text-2xl">Create an Account</CardTitle>
+        <CardDescription>Join GreenView to manage your greenhouse.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleEmailSignIn)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleRegister)} className="space-y-4">
+             <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Full Name</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Your full name" {...field} disabled={currentLoading} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="email"
@@ -96,21 +114,35 @@ export default function LoginPage() {
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm Password</FormLabel>
+                  <FormControl>
+                    <Input type="password" placeholder="••••••••" {...field} disabled={currentLoading} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <Button type="submit" className="w-full" disabled={currentLoading}>
-              {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
-              Sign In
+              {currentLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
+              Sign Up
             </Button>
           </form>
         </Form>
       </CardContent>
-      <CardFooter className="flex-col items-center space-y-2">
+      <CardFooter className="flex-col items-center">
         <p className="text-sm text-muted-foreground">
-          Don't have an account?{' '}
+          Already have an account?{' '}
           <Button variant="link" asChild className="px-0">
-            <Link href="/register">Sign Up</Link>
+            <Link href="/login">Sign In</Link>
           </Button>
         </p>
       </CardFooter>
     </Card>
   );
 }
+
