@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +37,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
-  email: z.string().email("Invalid email address."),
+  email: z.string().email("Invalid email address.").toLowerCase(),
   country: z.string().min(2, "Country must be at least 2 characters."),
   notificationsEnabled: z.boolean().default(true),
 });
@@ -106,52 +106,72 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    // Still using mockUser for user profile for now
     setCurrentUser(mockUser); 
-    if (mockUser && authUser) { // Use authUser's email if available, otherwise mockUser's
+    if (mockUser && authUser) { 
       userForm.reset({
-        name: mockUser.name,
+        name: authUser?.name || mockUser.name,
         email: authUser?.email || mockUser.email,
-        country: mockUser.country,
+        country: authUser?.country || mockUser.country || "",
         notificationsEnabled: true, 
       });
     } else if (mockUser) {
          userForm.reset({
             name: mockUser.name,
             email: mockUser.email,
-            country: mockUser.country,
+            country: mockUser.country || "",
             notificationsEnabled: true,
         });
     }
   }, [userForm, authUser]);
 
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
     if (!authUser) return;
     setIsDevicesLoading(true);
+    let response; // Define response here to access it in catch block
     try {
-      const response = await fetch(`/api/devices?userId=${authUser.id}`);
-      if (!response.ok) throw new Error('Failed to fetch devices');
+      response = await fetch(`/api/devices?userId=${authUser.id}`);
+      if (!response.ok) {
+        let errorMessage = 'Failed to fetch devices';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // Not a JSON error response, or JSON parsing failed
+          const textError = await response.text();
+          console.error("Non-JSON error response from /api/devices:", textError);
+          errorMessage = `Failed to fetch devices. Server returned: ${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
       const data: Device[] = await response.json();
       setDevices(data);
-      if (data.length > 0 && !selectedDeviceId) {
+      if (data.length > 0 && (!selectedDeviceId || !data.find(d => d.serialNumber === selectedDeviceId))) {
         setSelectedDeviceId(data[0].serialNumber);
       } else if (data.length === 0) {
         setSelectedDeviceId(undefined);
+        setCurrentDeviceSettings(null); // Clear settings if no devices
+        deviceForm.reset({ // Reset form to defaults if no devices
+            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
+            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
+            temperatureUnit: TemperatureUnit.CELSIUS,
+        });
       }
-    } catch (error) {
-      toast({ title: "Error", description: "Could not load your devices.", variant: "destructive" });
-      console.error("Error fetching devices:", error);
+    } catch (error: any) {
+      toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
+      console.error("Error fetching devices:", error.message);
+      setDevices([]); // Clear devices on error
+      setSelectedDeviceId(undefined);
+      setCurrentDeviceSettings(null);
     } finally {
       setIsDevicesLoading(false);
     }
-  };
+  }, [authUser, toast, deviceForm, selectedDeviceId]);
   
   useEffect(() => {
     if (authUser) {
       fetchDevices();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authUser]);
+  }, [authUser, fetchDevices]);
 
 
   useEffect(() => {
@@ -162,12 +182,17 @@ export default function SettingsPage() {
         try {
           const response = await fetch(`/api/device-settings/${selectedDeviceId}?userId=${authUser.id}`);
           if (!response.ok) {
-             const errorData = await response.json();
-             throw new Error(errorData.message || 'Failed to fetch device settings');
+             let errorMsg = `Failed to fetch settings for ${selectedDeviceId}.`;
+             try {
+                const errorData = await response.json();
+                errorMsg = errorData.message || errorMsg;
+             } catch(e) {
+                errorMsg = `Failed to fetch settings: ${response.status} ${response.statusText}`;
+             }
+             throw new Error(errorMsg);
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
-          // Only reset fields managed by deviceSettingsSchema
           deviceForm.reset({
             measurementInterval: data.measurementInterval,
             autoIrrigation: data.autoIrrigation,
@@ -179,7 +204,7 @@ export default function SettingsPage() {
             temperatureUnit: data.temperatureUnit,
           });
         } catch (error: any) {
-          toast({ title: "Error", description: `Could not load settings for ${selectedDeviceId}: ${error.message}`, variant: "destructive" });
+          toast({ title: "Error", description: error.message, variant: "destructive" });
           console.error("Error fetching device settings:", error);
           deviceForm.reset({ 
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
@@ -191,6 +216,7 @@ export default function SettingsPage() {
         }
       } else {
         setCurrentDeviceSettings(null);
+        // Reset to defaults if no device is selected
         deviceForm.reset({
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
@@ -198,24 +224,33 @@ export default function SettingsPage() {
         }); 
       }
     };
+    
+    // Only fetch settings if a device is selected, otherwise reset form.
     if (selectedDeviceId) {
         fetchDeviceSettings();
     } else {
+        // If no device is selected (e.g., after deleting all devices or initial load with no devices)
+        // ensure the form is reset and current settings are cleared.
+        setCurrentDeviceSettings(null);
         deviceForm.reset({
             measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
             temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
             temperatureUnit: TemperatureUnit.CELSIUS,
         });
-        setCurrentDeviceSettings(null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeviceId, authUser]);
+  }, [selectedDeviceId, authUser, toast, deviceForm]);
 
   const handleUserSave = async (values: z.infer<typeof userSettingsSchema>) => {
     setIsUserSaving(true);
+    // TODO: Implement actual API call to update user profile
     await new Promise(resolve => setTimeout(resolve, 1000)); 
     console.log("User settings saved (mock):", values);
-    setCurrentUser(prev => prev ? {...prev, ...values} : null);
+    setCurrentUser(prev => prev ? {...prev, ...values, email: values.email.toLowerCase()} : null);
+     if (authUser) { // Update authUser's email in context if it changed.
+        authUser.name = values.name;
+        authUser.email = values.email.toLowerCase();
+        authUser.country = values.country;
+     }
     setIsUserSaving(false);
     toast({ title: "User Settings Saved", description: "Your profile information has been updated." });
   };
@@ -237,8 +272,8 @@ export default function SettingsPage() {
       
       toast({ title: "Device Registered", description: `${data.device.name} has been added.` });
       deviceRegistrationForm.reset();
-      await fetchDevices(); 
-      setSelectedDeviceId(data.device.serialNumber); 
+      await fetchDevices(); // Refetch devices to update the list and potentially select the new one
+      setSelectedDeviceId(data.device.serialNumber); // Select the new device
     } catch (error: any) {
       toast({ title: "Registration Failed", description: error.message, variant: "destructive" });
     } finally {
@@ -253,26 +288,15 @@ export default function SettingsPage() {
         const response = await fetch(`/api/device-settings/${selectedDeviceId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // Send only the values relevant to the deviceSettingsSchema
             body: JSON.stringify({ ...values, userId: authUser.id }), 
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to save device settings');
         
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
-        // Update currentDeviceSettings with the full response, then reset form with schema-relevant parts
         setCurrentDeviceSettings(data.settings); 
-        deviceForm.reset({
-            measurementInterval: data.settings.measurementInterval,
-            autoIrrigation: data.settings.autoIrrigation,
-            irrigationThreshold: data.settings.irrigationThreshold,
-            autoVentilation: data.settings.autoVentilation,
-            temperatureThreshold: data.settings.temperatureThreshold,
-            temperatureFanOffThreshold: data.settings.temperatureFanOffThreshold,
-            photoCaptureInterval: data.settings.photoCaptureInterval,
-            temperatureUnit: data.settings.temperatureUnit,
-        }); 
-        deviceForm.formState.isDirty = false;
+        deviceForm.reset(data.settings); // Reset form with new settings from API
+        // deviceForm.formState.isDirty = false; // This might not be needed if reset handles it
 
     } catch (error: any) {
         toast({ title: "Save Failed", description: error.message, variant: "destructive" });
@@ -293,7 +317,7 @@ export default function SettingsPage() {
           <CardTitle>User Profile</CardTitle>
           <CardDescription>Update your personal information.</CardDescription>
         </CardHeader>
-        {currentUser ? (
+        {userForm.formState.defaultValues ? ( // Check if form has been initialized
           <Form {...userForm}>
             <form onSubmit={userForm.handleSubmit(handleUserSave)}>
               <CardContent className="space-y-4">
@@ -305,7 +329,7 @@ export default function SettingsPage() {
               <CardFooter> <Button type="submit" disabled={isUserSaving}> {isUserSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Profile </Button> </CardFooter>
             </form>
           </Form>
-        ) : <Skeleton className="h-60 w-full" /> }
+        ) : <CardContent><Skeleton className="h-60 w-full" /></CardContent> }
       </Card>
 
       <Card className="shadow-lg">
@@ -340,7 +364,7 @@ export default function SettingsPage() {
                 <Label htmlFor="device-select">Select Device</Label>
                 {isDevicesLoading ? <Skeleton className="h-10 w-full md:w-[280px]" /> :
                   devices.length > 0 ? (
-                    <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId} disabled={isDevicesLoading || isDeviceSettingsLoading}>
+                    <Select value={selectedDeviceId || ""} onValueChange={setSelectedDeviceId} disabled={isDevicesLoading || isDeviceSettingsLoading}>
                       <SelectTrigger id="device-select" className="w-full md:w-[280px]">
                         <SelectValue placeholder="Select a device" />
                       </SelectTrigger>
@@ -358,9 +382,9 @@ export default function SettingsPage() {
                 }
               </div>
 
-              {selectedDeviceId && isDeviceSettingsLoading && <Skeleton className="h-96 w-full mt-4" />}
+              {selectedDeviceId && isDeviceSettingsLoading && <CardContent><Skeleton className="h-96 w-full mt-4" /></CardContent>}
               
-              {selectedDeviceId && currentDeviceSettings && !isDeviceSettingsLoading && (
+              {selectedDeviceId && !isDeviceSettingsLoading && currentDeviceSettings && (
                 <div className="space-y-4 pt-4 border-t mt-4">
                   <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min). Arduino will poll for this setting.</FormDescription> <FormMessage /> </FormItem> )}/>
                   <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
@@ -378,11 +402,15 @@ export default function SettingsPage() {
               )}
               
               {!selectedDeviceId && devices.length > 0 && !isDevicesLoading && (
-                <p className="text-muted-foreground text-center py-4">Select a device to configure its settings.</p>
+                <CardContent><p className="text-muted-foreground text-center py-4">Select a device to configure its settings.</p></CardContent>
+              )}
+               {!selectedDeviceId && devices.length === 0 && !isDevicesLoading && (
+                <CardContent><p className="text-muted-foreground text-center py-4">No devices registered. Add one above.</p></CardContent>
               )}
 
+
             </CardContent>
-            {selectedDeviceId && currentDeviceSettings && !isDeviceSettingsLoading && (
+            {selectedDeviceId && !isDeviceSettingsLoading && currentDeviceSettings && (
               <CardFooter>
                 <Button type="submit" disabled={isDeviceSaving || !deviceForm.formState.isDirty}>
                   {isDeviceSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
