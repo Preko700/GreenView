@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { ReactNode } from 'react';
@@ -21,15 +22,25 @@ import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
-const navItems: NavItem[] = [
-  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { title: 'AI Assistant', href: '/ai-assistant', icon: Bot },
-  { title: 'Monitoring', href: '/monitoring', icon: BarChart3 }, // Base path, specific device ID will be appended
-  { title: 'Control', href: '/control', icon: ToggleLeft },
-  { title: 'Media', href: '/media', icon: ImageIcon },
-  { title: 'Settings', href: '/settings', icon: Settings },
-  { title: 'Support', href: '/support', icon: LifeBuoy },
-];
+const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId'; // Debe coincidir con la clave en DashboardPage
+
+// Función para generar los items de navegación dinámicamente
+const generateNavItems = (deviceId: string | null): NavItem[] => {
+  const baseHref = (path: string) => deviceId ? `${path}/${deviceId}` : '/dashboard';
+  const isActionDisabled = !deviceId;
+  // El tooltip se puede manejar directamente en SidebarNav si es necesario, basado en item.disabled
+
+  return [
+    { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { title: 'AI Assistant', href: '/ai-assistant', icon: Bot },
+    { title: 'Monitoring', href: baseHref('/monitoring'), icon: BarChart3, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
+    { title: 'Control', href: baseHref('/control'), icon: ToggleLeft, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
+    { title: 'Media', href: baseHref('/media'), icon: ImageIcon, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
+    { title: 'Settings', href: '/settings', icon: Settings },
+    { title: 'Support', href: '/support', icon: LifeBuoy },
+  ];
+};
+
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -38,6 +49,7 @@ interface AppLayoutProps {
 function CollapsibleSidebar() {
   const { open, setOpen, isMobile } = useSidebar();
   const [isCollapsed, setIsCollapsed] = useState(!open);
+  const [currentNavItems, setCurrentNavItems] = useState<NavItem[]>(generateNavItems(null));
 
   useEffect(() => {
     if (!isMobile) {
@@ -48,9 +60,39 @@ function CollapsibleSidebar() {
   const toggleSidebar = () => {
     setOpen(!open);
     if (!isMobile) {
-      setIsCollapsed(open); // if open is true, it means it was open, now it's closed -> collapsed
+      setIsCollapsed(open); 
     }
   };
+
+  useEffect(() => {
+    const updateNavItems = () => {
+      const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
+      setCurrentNavItems(generateNavItems(storedDeviceId));
+    };
+
+    updateNavItems(); // Initial update
+
+    // Listen for custom event from Dashboard when deviceId changes
+    const handleDeviceChange = () => updateNavItems();
+    window.addEventListener('selectedDeviceChanged', handleDeviceChange);
+    
+    // Listen for direct storage changes (e.g., from other tabs, or if Dashboard uses direct localStorage.setItem)
+    window.addEventListener('storage', (event) => {
+        if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
+            updateNavItems();
+        }
+    });
+
+
+    return () => {
+      window.removeEventListener('selectedDeviceChanged', handleDeviceChange);
+      window.removeEventListener('storage', (event) => {
+        if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
+            updateNavItems();
+        }
+    });
+    };
+  }, []);
 
 
   return (
@@ -63,7 +105,7 @@ function CollapsibleSidebar() {
           </Button>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarNav items={navItems} isCollapsed={isCollapsed} />
+        <SidebarNav items={currentNavItems} isCollapsed={isCollapsed} />
       </SidebarContent>
       <SidebarFooter className="p-4">
         {!isCollapsed && <UserNav />}
@@ -82,15 +124,16 @@ export function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const isAuthPage = pathname === '/login' || pathname === '/register';
 
-  // Load sidebar state from cookie or default to open
   const [defaultOpen, setDefaultOpen] = useState(true);
   useEffect(() => {
-    const cookieValue = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('sidebar_state='))
-      ?.split('=')[1];
-    if (cookieValue) {
-      setDefaultOpen(cookieValue === 'true');
+    if (typeof window !== 'undefined') {
+      const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('sidebar_state='))
+        ?.split('=')[1];
+      if (cookieValue) {
+        setDefaultOpen(cookieValue === 'true');
+      }
     }
   }, []);
 
@@ -116,3 +159,4 @@ export function AppLayout({ children }: AppLayoutProps) {
     </SidebarProvider>
   );
 }
+

@@ -4,7 +4,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeviceSelector } from '@/components/dashboard/DeviceSelector';
-// import { getMockSensorData } from '@/data/mockData'; // No longer primary source
 import type { Device, SensorData } from '@/lib/types';
 import { SensorType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -15,7 +14,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { SensorDisplayCard } from '@/components/dashboard/SensorDisplayCard'; // Asegúrate de importar SensorDisplayCard
 
+const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -28,6 +29,7 @@ export default function DashboardPage() {
   const [isLoadingDevices, setIsLoadingDevices] = useState(true);
   const [isLoadingSensorData, setIsLoadingSensorData] = useState(false);
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
+  const [isLocalStorageChecked, setIsLocalStorageChecked] = useState(false);
 
   const fetchDevices = useCallback(async () => {
     if (!user) return;
@@ -52,14 +54,22 @@ export default function DashboardPage() {
       }
       const data: Device[] = await response.json();
       setDevices(data);
+
+      // Logic to set selectedDeviceId after devices are fetched
       if (data.length > 0) {
-        if (!selectedDeviceId || !data.find(d => d.serialNumber === selectedDeviceId)) {
+        const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
+        if (storedDeviceId && data.some(d => d.serialNumber === storedDeviceId)) {
+          setSelectedDeviceId(storedDeviceId);
+        } else if (!selectedDeviceId) { // If no device is selected yet (or stored one is invalid)
           setSelectedDeviceId(data[0].serialNumber);
         }
       } else {
         setSelectedDeviceId(null);
         setCurrentDevice(null);
         setSensorReadings([]);
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem(SELECTED_DEVICE_ID_LS_KEY);
+        }
       }
     } catch (error: any) {
       if (!dbSchemaError) {
@@ -68,12 +78,21 @@ export default function DashboardPage() {
       console.error("Error fetching devices on dashboard:", error.message);
     } finally {
       setIsLoadingDevices(false);
+      setIsLocalStorageChecked(true); // Mark localStorage as checked after devices are fetched
     }
-  }, [user, toast, selectedDeviceId, dbSchemaError]);
+  }, [user, toast, dbSchemaError, selectedDeviceId]); // Added selectedDeviceId to ensure it attempts to keep it if valid
 
   useEffect(() => {
     fetchDevices();
   }, [fetchDevices]);
+  
+  // Persist selectedDeviceId to localStorage
+  useEffect(() => {
+    if (selectedDeviceId && isLocalStorageChecked) { // Only save if localStorage has been checked and a device is selected
+      localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
+    }
+  }, [selectedDeviceId, isLocalStorageChecked]);
+
 
   const fetchSensorDataForDevice = useCallback(async (deviceId: string) => {
     if (!user) return;
@@ -88,7 +107,7 @@ export default function DashboardPage() {
       setSensorReadings(data);
     } catch (error: any) {
       toast({ title: "Error", description: `Could not load sensor data for ${currentDevice?.name || 'device'}: ${error.message}`, variant: "destructive" });
-      setSensorReadings([]); // Clear readings on error
+      setSensorReadings([]); 
     } finally {
       setIsLoadingSensorData(false);
     }
@@ -161,11 +180,11 @@ export default function DashboardPage() {
             devices={devices} 
             selectedDeviceId={selectedDeviceId} 
             onSelectDevice={setSelectedDeviceId}
-            isLoading={isLoadingDevices} 
+            isLoading={isLoadingDevices || !isLocalStorageChecked} 
         />
       </section>
 
-      {(isLoadingDevices || (selectedDeviceId && isLoadingSensorData)) && (
+      {(isLoadingDevices || (selectedDeviceId && isLoadingSensorData) || !isLocalStorageChecked) && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[SensorType.TEMPERATURE, SensorType.AIR_HUMIDITY, SensorType.SOIL_HUMIDITY, SensorType.LIGHT, SensorType.PH, SensorType.WATER_LEVEL].map((type) => (
             <Skeleton key={type} className="h-36 w-full" />
@@ -173,7 +192,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!isLoadingDevices && !isLoadingSensorData && currentDevice && (
+      {!isLoadingDevices && !isLoadingSensorData && currentDevice && isLocalStorageChecked && (
         <section>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-foreground/90">
@@ -189,7 +208,7 @@ export default function DashboardPage() {
                  <span className="text-xs bg-yellow-100 text-yellow-700 font-medium px-2.5 py-0.5 rounded-full dark:bg-yellow-900 dark:text-yellow-300">Status Unknown</span>
             )}
           </div>
-          {(currentDevice.isActive === undefined || currentDevice.isActive) ? ( // Show sensors if active or status unknown
+          {(currentDevice.isActive === undefined || currentDevice.isActive) ? ( 
             sensorReadings.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.TEMPERATURE)} sensorType={SensorType.TEMPERATURE} />
@@ -221,7 +240,7 @@ export default function DashboardPage() {
         </section>
       )}
       
-      {!isLoadingDevices && !currentDevice && devices.length > 0 && (
+      {!isLoadingDevices && !currentDevice && devices.length > 0 && isLocalStorageChecked && (
          <Card className="mt-8">
             <CardHeader> <CardTitle className="text-lg text-center">No Device Selected</CardTitle> </CardHeader>
             <CardContent className="text-center text-muted-foreground">
@@ -230,7 +249,7 @@ export default function DashboardPage() {
           </Card>
       )}
       
-       {!isLoadingDevices && devices.length === 0 && !dbSchemaError && (
+       {!isLoadingDevices && devices.length === 0 && !dbSchemaError && isLocalStorageChecked && (
          <Card className="mt-8">
             <CardHeader> <CardTitle className="text-lg text-center">No Devices Available</CardTitle> </CardHeader>
             <CardContent className="text-center text-muted-foreground">
@@ -244,3 +263,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
