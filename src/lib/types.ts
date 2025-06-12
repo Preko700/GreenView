@@ -1,5 +1,4 @@
 
-
 export interface User {
   id: number;
   name: string | null;
@@ -7,7 +6,6 @@ export interface User {
   country?: string | null;
   registrationDate?: number;
   profileImageUrl?: string | null;
-  // Password should not be part of this client-side User type
 }
 
 export interface EmailPasswordCredentials {
@@ -17,20 +15,21 @@ export interface EmailPasswordCredentials {
 
 export interface RegistrationCredentials extends EmailPasswordCredentials {
     name: string;
-    country?: string; // Optional for registration for now
+    country?: string;
 }
-
 
 export interface Device {
   serialNumber: string;
+  // userId is implied by the context in which devices are fetched (for a specific user)
+  // but can be included if needed for broader admin views later.
   name: string;
+  plantType?: string | null;
+  location?: string | null;
   activationDate: number;
-  warrantyEndDate: number;
+  warrantyEndDate?: number | null;
   isActive: boolean;
   isPoweredByBattery: boolean;
-  lastUpdateTimestamp: number;
-  plantType?: string; 
-  location?: string; 
+  lastUpdateTimestamp?: number; // Will be useful for RF-005
 }
 
 export enum SensorType {
@@ -84,8 +83,7 @@ export enum TemperatureUnit {
 }
 
 export interface DeviceSettings {
-  deviceId: string;
-  userId?: number; // To link to the users table
+  deviceId: string; // This will be the serialNumber of the device
   measurementInterval: number; // minutes
   autoIrrigation: boolean;
   autoVentilation: boolean;

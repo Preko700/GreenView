@@ -1,15 +1,19 @@
+
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ControlCard } from '@/components/control/ControlCard';
-import { getMockDevice, getMockDeviceSettings } from '@/data/mockData';
+import { getMockDeviceSettings } from '@/data/mockData'; // Settings might still be partially mock
 import type { Device, DeviceSettings } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lightbulb, Wind, Droplets, Zap } from 'lucide-react'; // Zap for UV Light placeholder
+import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface ControlStates {
   light: boolean;
@@ -28,6 +32,8 @@ interface ControlLoadingStates {
 export default function ControlPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
+  const { toast } = useToast();
   const deviceId = params.deviceId as string;
 
   const [device, setDevice] = useState<Device | null>(null);
@@ -46,32 +52,59 @@ export default function ControlPage() {
   });
   const [isPageLoading, setIsPageLoading] = useState(true);
 
-  useEffect(() => {
-    if (deviceId) {
+  const fetchDeviceData = useCallback(async () => {
+    if (deviceId && user) {
       setIsPageLoading(true);
-      // Simulate fetching device data and initial control states
-      const foundDevice = getMockDevice(deviceId);
-      const foundSettings = getMockDeviceSettings(deviceId);
-      setDevice(foundDevice || null);
-      setSettings(foundSettings || null);
-      
-      // Mock initial states (in a real app, these would come from the device/backend)
-      setControlStates({
-        light: Math.random() > 0.5,
-        fan: Math.random() > 0.5,
-        irrigation: foundSettings?.autoIrrigation ? Math.random() > 0.7 : false, // Less likely if auto
-        uvLight: Math.random() > 0.8,
-      });
-      setTimeout(() => setIsPageLoading(false), 500);
+      try {
+        const res = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            toast({ title: "Error", description: "Device not found or you're not authorized to view it.", variant: "destructive"});
+            setDevice(null);
+          } else {
+            throw new Error("Failed to fetch device data");
+          }
+        } else {
+          const fetchedDevice: Device = await res.json();
+          setDevice(fetchedDevice);
+          // Simulate fetching initial control states and device-specific settings
+          const foundSettings = getMockDeviceSettings(deviceId); // Still using mock for actual hardware states
+          setSettings(foundSettings || null);
+          setControlStates({
+            light: Math.random() > 0.5,
+            fan: Math.random() > 0.5,
+            irrigation: foundSettings?.autoIrrigation ? Math.random() > 0.7 : false,
+            uvLight: Math.random() > 0.8,
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching device:", error);
+        toast({ title: "Error", description: "Could not load device details.", variant: "destructive"});
+        setDevice(null);
+      } finally {
+        setIsPageLoading(false);
+      }
+    } else if (!user && deviceId) {
+      // User might not be loaded yet, or not logged in
+      setIsPageLoading(true); // Keep loading until user context is resolved
     }
-  }, [deviceId]);
+  }, [deviceId, user, toast]);
+
+  useEffect(() => {
+    fetchDeviceData();
+  }, [fetchDeviceData]);
 
   const handleToggle = async (controlName: keyof ControlStates) => {
+    if (!device || !device.isActive) {
+      toast({ title: "Device Offline", description: "Cannot toggle controls for an inactive device.", variant: "destructive" });
+      return;
+    }
     setLoadingStates(prev => ({ ...prev, [controlName]: true }));
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 700));
     setControlStates(prev => ({ ...prev, [controlName]: !prev[controlName] }));
     setLoadingStates(prev => ({ ...prev, [controlName]: false }));
+    toast({ title: `${controlName.charAt(0).toUpperCase() + controlName.slice(1)} Toggled`, description: `Successfully toggled ${controlName}.` });
   };
 
   if (isPageLoading) {
@@ -88,11 +121,18 @@ export default function ControlPage() {
   if (!device) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 text-center">
-        <h1 className="text-2xl font-semibold text-destructive">Device not found</h1>
-        <p className="text-muted-foreground mt-2">The device with ID '{deviceId}' could not be loaded.</p>
-        <Button onClick={() => router.push('/dashboard')} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-        </Button>
+        <Card className="max-w-md mx-auto">
+            <CardHeader>
+                <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
+                <CardTitle className="text-2xl text-destructive">Device Not Found</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-muted-foreground mt-2">The device with ID '{deviceId}' could not be loaded or you are not authorized to access it.</p>
+                <Button onClick={() => router.push('/dashboard')} className="mt-6">
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+                </Button>
+            </CardContent>
+        </Card>
       </div>
     );
   }
@@ -121,45 +161,17 @@ export default function ControlPage() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <ControlCard
-          title="Main Light"
-          icon={Lightbulb}
-          isActive={controlStates.light}
-          isLoading={loadingStates.light}
-          onToggle={() => handleToggle('light')}
-          description="Toggle the main grow lights."
-        />
-        <ControlCard
-          title="Ventilation Fan"
-          icon={Wind}
-          isActive={controlStates.fan}
-          isLoading={loadingStates.fan}
-          onToggle={() => handleToggle('fan')}
-          description="Activate or deactivate the circulation fan."
-        />
-        <ControlCard
-          title="Irrigation System"
-          icon={Droplets}
-          isActive={controlStates.irrigation}
-          isLoading={loadingStates.irrigation}
-          onToggle={() => handleToggle('irrigation')}
-          description={`Manual override for the watering system. Auto-irrigation is ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`}
-        />
-        <ControlCard
-          title="UV Light"
-          icon={Zap}
-          isActive={controlStates.uvLight}
-          isLoading={loadingStates.uvLight}
-          onToggle={() => handleToggle('uvLight')}
-          description="Control the supplementary UV lighting."
-        />
+        <ControlCard title="Main Light" icon={Lightbulb} isActive={controlStates.light} isLoading={loadingStates.light} onToggle={() => handleToggle('light')} description="Toggle the main grow lights."/>
+        <ControlCard title="Ventilation Fan" icon={Wind} isActive={controlStates.fan} isLoading={loadingStates.fan} onToggle={() => handleToggle('fan')} description="Activate or deactivate the circulation fan." />
+        <ControlCard title="Irrigation System" icon={Droplets} isActive={controlStates.irrigation} isLoading={loadingStates.irrigation} onToggle={() => handleToggle('irrigation')} description={`Manual override for the watering system. Auto-irrigation is ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
+        <ControlCard title="UV Light" icon={Zap} isActive={controlStates.uvLight} isLoading={loadingStates.uvLight} onToggle={() => handleToggle('uvLight')} description="Control the supplementary UV lighting."/>
       </div>
 
       {settings && (
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>Automation Status</CardTitle>
-            <CardDescription>Current automated control settings. Change these in <Link href={`/settings`} className="text-primary underline">Device Settings</Link>.</CardDescription>
+            <CardDescription>Current automated control settings. Change these in <Link href={`/settings`} className="text-primary underline hover:text-primary/80">Device Settings</Link>.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <p>Auto Irrigation: <span className="font-semibold">{settings.autoIrrigation ? "Enabled" : "Disabled"}</span> (Threshold: {settings.irrigationThreshold}%)</p>

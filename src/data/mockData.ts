@@ -1,8 +1,9 @@
-import type { Device, SensorData, DeviceImage, DeviceSettings, User } from '@/lib/types';
+
+import type { SensorData, DeviceImage, DeviceSettings, User } from '@/lib/types';
 import { SensorType, TemperatureUnit } from '@/lib/types';
 
 export const mockUser: User = {
-  id: 'user123',
+  id: 1, // Assuming first user in DB will be ID 1
   name: 'Demo User',
   email: 'user@example.com',
   country: 'USA',
@@ -10,47 +11,16 @@ export const mockUser: User = {
   profileImageUrl: 'https://placehold.co/100x100.png',
 };
 
-export const mockDevices: Device[] = [
-  {
-    serialNumber: 'GH-001',
-    userId: 'user123',
-    name: 'Backyard Greenhouse',
-    activationDate: Date.now() - 1000 * 60 * 60 * 24 * 10, // 10 days ago
-    warrantyEndDate: Date.now() + 1000 * 60 * 60 * 24 * 355, // 355 days left
-    isActive: true,
-    isPoweredByBattery: false,
-    lastUpdateTimestamp: Date.now() - 1000 * 60 * 5, // 5 minutes ago
-    plantType: 'Tomatoes',
-    location: 'California, USA'
-  },
-  {
-    serialNumber: 'GH-002',
-    userId: 'user123',
-    name: 'Balcony Herbs',
-    activationDate: Date.now() - 1000 * 60 * 60 * 24 * 5, // 5 days ago
-    warrantyEndDate: Date.now() + 1000 * 60 * 60 * 24 * 360, // 360 days left
-    isActive: true,
-    isPoweredByBattery: true,
-    lastUpdateTimestamp: Date.now() - 1000 * 60 * 15, // 15 minutes ago
-    plantType: 'Basil and Mint',
-    location: 'New York, USA'
-  },
-  {
-    serialNumber: 'GH-003',
-    userId: 'user123',
-    name: 'Inactive Setup',
-    activationDate: Date.now() - 1000 * 60 * 60 * 24 * 60, // 60 days ago
-    warrantyEndDate: Date.now() + 1000 * 60 * 60 * 24 * 305, // 305 days left
-    isActive: false,
-    isPoweredByBattery: false,
-    lastUpdateTimestamp: Date.now() - 1000 * 60 * 60 * 24, // 1 day ago
-    plantType: 'Various Seedlings',
-    location: 'Florida, USA'
-  },
-];
+// mockDevices is now removed as devices will be fetched from the database.
+// export const mockDevices: Device[] = [ ... ];
 
+// getMockDevice is also removed.
+// export const getMockDevice = (deviceId: string): Device | undefined => mockDevices.find(d => d.serialNumber === deviceId);
+
+
+// Sensor data can still be mocked for now until actual sensor integration
 export const mockSensorData: { [deviceId: string]: SensorData[] } = {
-  'GH-001': [
+  'GH-001': [ // Example deviceId, replace with actual deviceIds once registered
     { id: 'temp1', deviceId: 'GH-001', type: SensorType.TEMPERATURE, value: 25, unit: '°C', timestamp: Date.now() - 1000 * 60 * 2 },
     { id: 'airh1', deviceId: 'GH-001', type: SensorType.AIR_HUMIDITY, value: 60, unit: '%', timestamp: Date.now() - 1000 * 60 * 2 },
     { id: 'soilh1', deviceId: 'GH-001', type: SensorType.SOIL_HUMIDITY, value: 55, unit: '%', timestamp: Date.now() - 1000 * 60 * 2 },
@@ -66,7 +36,6 @@ export const mockSensorData: { [deviceId: string]: SensorData[] } = {
   ],
 };
 
-// Mock historical data for charts
 export const mockHistoricalSensorData: { [deviceId: string]: { [type in SensorType]?: SensorData[] } } = {
   'GH-001': {
     [SensorType.TEMPERATURE]: Array.from({ length: 24 }, (_, i) => ({
@@ -97,7 +66,7 @@ export const mockHistoricalSensorData: { [deviceId: string]: { [type in SensorTy
       id: `hist_light_${i}`,
       deviceId: 'GH-001',
       type: SensorType.LIGHT,
-      value: Math.max(0, 8000 + Math.sin(i / 7.6) * 7000 + Math.random() * 1000), // Simulate day/night
+      value: Math.max(0, 8000 + Math.sin(i / 7.6) * 7000 + Math.random() * 1000),
       unit: 'lux',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
@@ -117,6 +86,9 @@ export const mockDeviceImages: { [deviceId: string]: DeviceImage[] } = {
   ],
 };
 
+// mockDeviceSettings and getMockDeviceSettings are no longer the primary source for device settings.
+// Settings will be fetched from /api/device-settings/[deviceId]
+// This object can be removed or kept for reference of structure if needed.
 export const mockDeviceSettings: { [deviceId: string]: DeviceSettings } = {
   'GH-001': {
     deviceId: 'GH-001',
@@ -129,21 +101,10 @@ export const mockDeviceSettings: { [deviceId: string]: DeviceSettings } = {
     photoCaptureInterval: 6,
     temperatureUnit: TemperatureUnit.CELSIUS,
   },
-  'GH-002': {
-    deviceId: 'GH-002',
-    measurementInterval: 10,
-    autoIrrigation: false,
-    autoVentilation: true,
-    irrigationThreshold: 50,
-    temperatureThreshold: 26,
-    temperatureFanOffThreshold: 23,
-    photoCaptureInterval: 12,
-    temperatureUnit: TemperatureUnit.CELSIUS,
-  },
 };
+export const getMockDeviceSettings = (deviceId: string): DeviceSettings | undefined => mockDeviceSettings[deviceId];
 
-export const getMockDevice = (deviceId: string): Device | undefined => mockDevices.find(d => d.serialNumber === deviceId);
+
 export const getMockSensorData = (deviceId: string): SensorData[] => mockSensorData[deviceId] || [];
 export const getMockHistoricalSensorData = (deviceId: string, sensorType: SensorType): SensorData[] => mockHistoricalSensorData[deviceId]?.[sensorType] || [];
 export const getMockDeviceImages = (deviceId: string): DeviceImage[] => mockDeviceImages[deviceId] || [];
-export const getMockDeviceSettings = (deviceId: string): DeviceSettings | undefined => mockDeviceSettings[deviceId];

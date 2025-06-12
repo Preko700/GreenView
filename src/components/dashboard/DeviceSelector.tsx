@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Device } from "@/lib/types";
@@ -5,19 +6,44 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Smartphone, Battery, Wifi, WifiOff } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DeviceSelectorProps {
   devices: Device[];
   selectedDeviceId: string | null;
   onSelectDevice: (deviceId: string) => void;
+  isLoading?: boolean;
 }
 
-export function DeviceSelector({ devices, selectedDeviceId, onSelectDevice }: DeviceSelectorProps) {
+export function DeviceSelector({ devices, selectedDeviceId, onSelectDevice, isLoading = false }: DeviceSelectorProps) {
+  if (isLoading) {
+    return (
+      <ScrollArea className="w-full whitespace-nowrap pb-4">
+        <div className="flex w-max space-x-4 p-1">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="w-64 min-w-[250px]">
+              <CardHeader><Skeleton className="h-5 w-3/4" /></CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-4/6" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
+    );
+  }
+  
   if (!devices.length) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        No devices found. Add a new device to get started.
-      </div>
+      <Card className="text-center py-8 text-muted-foreground">
+        <CardHeader><CardTitle>No Devices Found</CardTitle></CardHeader>
+        <CardContent>
+            <p>Register a new device in Settings to get started.</p>
+        </CardContent>
+      </Card>
     );
   }
 
