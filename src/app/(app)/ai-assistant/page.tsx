@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 
 
 export default function AiAssistantPage() {
@@ -42,7 +43,10 @@ export default function AiAssistantPage() {
     setIsLoadingDevices(true);
     try {
       const response = await fetch(`/api/devices?userId=${user.id}`);
-      if (!response.ok) throw new Error('Failed to fetch devices');
+      if (!response.ok) {
+         const errorData = await response.json().catch(() => ({ message: 'Failed to fetch devices' }));
+        throw new Error(errorData.message || 'Failed to fetch devices');
+      }
       const data: Device[] = await response.json();
       setDevices(data);
       if (data.length > 0 && !selectedDeviceId) {
@@ -50,8 +54,8 @@ export default function AiAssistantPage() {
       } else if (data.length === 0) {
         setSelectedDeviceId(undefined);
       }
-    } catch (err) {
-      toast({ title: "Error", description: "Could not load your devices.", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Could not load your devices.", variant: "destructive" });
       console.error("Error fetching devices:", err);
     } finally {
       setIsLoadingDevices(false);
@@ -63,25 +67,61 @@ export default function AiAssistantPage() {
   }, [fetchDevices]);
 
 
-  useEffect(() => {
-    if (selectedDeviceId) {
-      const device = devices.find(d => d.serialNumber === selectedDeviceId);
-      const sensorData = getMockSensorData(selectedDeviceId); // Still using mock sensor data
-      
-      const getSensorValue = (type: SensorType): number | undefined => sensorData.find(s => s.type === type)?.value;
+ useEffect(() => {
+    const fetchInitialSensorData = async () => {
+      if (selectedDeviceId && user) {
+        try {
+          const response = await fetch(`/api/sensor-data/${selectedDeviceId}?userId=${user.id}`);
+          if (!response.ok) {
+            // Don't throw an error here, just proceed without initial sensor data if it fails
+            console.warn(`Failed to fetch initial sensor data for ${selectedDeviceId}`);
+            setInitialFormValues(prev => ({
+              ...prev,
+              plantType: devices.find(d => d.serialNumber === selectedDeviceId)?.plantType || '',
+              location: devices.find(d => d.serialNumber === selectedDeviceId)?.location || '',
+            }));
+            return;
+          }
+          const sensorReadings: SensorData[] = await response.json();
+          
+          const getSensorValue = (type: SensorType): number | undefined => {
+            const reading = sensorReadings.find(s => s.type === type);
+            return reading?.value;
+          };
+          
+          const device = devices.find(d => d.serialNumber === selectedDeviceId);
 
-      setInitialFormValues({
-        temperature: getSensorValue(SensorType.TEMPERATURE),
-        airHumidity: getSensorValue(SensorType.AIR_HUMIDITY),
-        soilHumidity: getSensorValue(SensorType.SOIL_HUMIDITY),
-        lightLevel: getSensorValue(SensorType.LIGHT),
-        plantType: device?.plantType || '',
-        location: device?.location || '',
-      });
-    } else {
-      setInitialFormValues(undefined);
-    }
-  }, [selectedDeviceId, devices]);
+          setInitialFormValues({
+            temperature: getSensorValue(SensorType.TEMPERATURE),
+            airHumidity: getSensorValue(SensorType.AIR_HUMIDITY),
+            soilHumidity: getSensorValue(SensorType.SOIL_HUMIDITY),
+            lightLevel: getSensorValue(SensorType.LIGHT),
+            plantType: device?.plantType || '',
+            location: device?.location || '',
+          });
+
+        } catch (error) {
+          console.error("Error fetching initial sensor data for AI Assistant:", error);
+           const device = devices.find(d => d.serialNumber === selectedDeviceId);
+           setInitialFormValues({ // Fallback to device data only
+            plantType: device?.plantType || '',
+            location: device?.location || '',
+          });
+        }
+      } else if (devices.length > 0 && selectedDeviceId) {
+        // Fallback if user is not available but device is selected (should not happen in normal flow)
+        const device = devices.find(d => d.serialNumber === selectedDeviceId);
+        setInitialFormValues({
+            plantType: device?.plantType || '',
+            location: device?.location || '',
+        });
+      } else {
+        setInitialFormValues(undefined);
+      }
+    };
+
+    fetchInitialSensorData();
+  }, [selectedDeviceId, devices, user]);
 
 
   const handleFormSubmit = async (data: ProvideGreenhouseAdviceInput) => {
