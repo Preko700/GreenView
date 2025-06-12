@@ -2,15 +2,13 @@
 "use client";
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/Logo';
-import { Loader2, LogIn, Mail } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { Loader2, LogIn } from 'lucide-react';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -30,10 +28,9 @@ const loginSchema = z.object({
 });
 
 export default function LoginPage() {
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login, isLoading: authIsLoading } = useAuth();
-  const router = useRouter();
-  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
@@ -45,17 +42,9 @@ export default function LoginPage() {
 
   const handleEmailSignIn = async (values: z.infer<typeof loginSchema>) => {
     setIsSubmitting(true);
-    try {
-      await login(values);
-      // Navigation is handled by the login function in AuthContext or effect hooks
-    } catch (error: any) {
-      // Firebase errors are typically handled within the AuthContext login and displayed via toast
-      // This catch is a fallback.
-      console.error("Login page error:", error);
-      toast({ title: "Login Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-    }
+    await login(values);
+    // AuthContext handles navigation and toast messages on success/failure
+    setIsSubmitting(false);
   };
   
   const currentLoading = isSubmitting || authIsLoading;

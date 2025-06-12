@@ -1,90 +1,100 @@
 
 "use client";
 
-import type { User, EmailPasswordCredentials } from '@/lib/types';
+import type { User, EmailPasswordCredentials, RegistrationCredentials } from '@/lib/types';
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  getAuth, 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut as firebaseSignOut,
-  updateProfile,
-  type User as FirebaseUser
-} from 'firebase/auth';
-import { auth as firebaseAuthService } from '@/lib/firebase'; // Use the initialized auth service
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (credentials: EmailPasswordCredentials) => Promise<void>;
-  register: (credentials: EmailPasswordCredentials & { name: string }) => Promise<void>;
+  register: (credentials: RegistrationCredentials) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LOCAL_STORAGE_USER_KEY = 'greenview_user_session';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Start true to check localStorage
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(firebaseAuthService, (firebaseUser: FirebaseUser | null) => {
-      if (firebaseUser) {
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-          photoURL: firebaseUser.photoURL,
-        });
-      } else {
-        setUser(null);
+    // Try to load user from localStorage on initial mount
+    try {
+      const storedUser = localStorage.getItem(LOCAL_STORAGE_USER_KEY);
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
       }
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+    } catch (error) {
+      console.error("Failed to parse user from localStorage", error);
+      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
+    }
+    setIsLoading(false);
   }, []);
 
   const login = async (credentials: EmailPasswordCredentials) => {
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(firebaseAuthService, credentials.email, credentials.password);
-      // onAuthStateChanged will handle setting user state and navigation
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      setUser(data.user);
+      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(data.user));
       toast({ title: "Login Successful", description: "Welcome back!" });
-      router.push('/dashboard'); 
+      router.push('/dashboard');
     } catch (error: any) {
       console.error("Login error:", error);
       toast({ title: "Login Failed", description: error.message || "Invalid email or password.", variant: "destructive" });
+      setUser(null);
+      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const register = async (credentials: EmailPasswordCredentials & { name: string }) => {
+  const register = async (credentials: RegistrationCredentials) => {
     setIsLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(firebaseAuthService, credentials.email, credentials.password);
-      if (userCredential.user) {
-        await updateProfile(userCredential.user, { displayName: credentials.name });
-        // Update local user state immediately for better UX
-        setUser({
-            uid: userCredential.user.uid,
-            email: userCredential.user.email,
-            displayName: credentials.name, // Use the name provided during registration
-        });
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Registration failed');
       }
-      toast({ title: "Registration Successful", description: `Welcome, ${credentials.name}!` });
-      router.push('/dashboard');
+      
+      // Optionally, log the user in directly after registration
+      setUser(data.user);
+      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(data.user));
+      toast({ title: "Registration Successful", description: `Welcome, ${data.user.name}!` });
+      router.push('/dashboard'); 
+
     } catch (error: any) {
       console.error("Registration error:", error);
       toast({ title: "Registration Failed", description: error.message || "Could not create account.", variant: "destructive" });
+      setUser(null);
+      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
     } finally {
       setIsLoading(false);
     }
@@ -92,19 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     setIsLoading(true);
-    try {
-      await firebaseSignOut(firebaseAuthService);
-      // onAuthStateChanged will handle setting user to null
-      toast({ title: "Logged Out", description: "You have been successfully logged out." });
-      router.push('/login');
-    } catch (error: any) {
-      console.error("Logout error:", error);
-      toast({ title: "Logout Failed", description: error.message || "An error occurred during logout.", variant: "destructive" });
-    } finally {
-      // Ensure isLoading is false even if router.push might not complete immediately in some tests/setups
-      // Small delay to allow onAuthStateChanged to potentially fire first if needed, though usually push is sufficient.
-      setTimeout(() => setIsLoading(false), 0);
-    }
+    setUser(null);
+    localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
+    toast({ title: "Logged Out", description: "You have been successfully logged out." });
+    router.push('/login');
+    setIsLoading(false); // Set loading to false after routing
   };
   
   const isAuthenticated = !!user && !isLoading;

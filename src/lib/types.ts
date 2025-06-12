@@ -1,17 +1,25 @@
 
-// User type for Firebase Auth
+
 export interface User {
-  uid: string;
+  id: number;
+  name: string | null;
   email: string | null;
-  displayName: string | null;
-  photoURL?: string | null;
-  // Add other Firebase user properties if needed
+  country?: string | null;
+  registrationDate?: number;
+  profileImageUrl?: string | null;
+  // Password should not be part of this client-side User type
 }
 
 export interface EmailPasswordCredentials {
   email: string;
   password: string;
 }
+
+export interface RegistrationCredentials extends EmailPasswordCredentials {
+    name: string;
+    country?: string; // Optional for registration for now
+}
+
 
 export interface Device {
   serialNumber: string;
@@ -77,6 +85,7 @@ export enum TemperatureUnit {
 
 export interface DeviceSettings {
   deviceId: string;
+  userId?: number; // To link to the users table
   measurementInterval: number; // minutes
   autoIrrigation: boolean;
   autoVentilation: boolean;
