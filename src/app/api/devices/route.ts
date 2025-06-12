@@ -37,10 +37,11 @@ export async function POST(request: NextRequest) {
     }
 
     const activationDate = Date.now();
+    // Warranty for 1 year
     const warrantyEndDate = activationDate + (365 * 24 * 60 * 60 * 1000); 
 
     await db.run(
-      'INSERT INTO devices (serialNumber, userId, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO devices (serialNumber, userId, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       serialNumber,
       userId,
       hardwareIdentifier,
@@ -49,10 +50,12 @@ export async function POST(request: NextRequest) {
       location,
       activationDate,
       warrantyEndDate,
-      true, 
-      isPoweredByBattery
+      true, // isActive by default
+      isPoweredByBattery,
+      null // lastUpdateTimestamp
     );
     
+    // Create default settings for this new device
     await db.run(
         `INSERT INTO device_settings (
             deviceId, measurementInterval, autoIrrigation, irrigationThreshold, 
@@ -60,7 +63,7 @@ export async function POST(request: NextRequest) {
             photoCaptureInterval, temperatureUnit,
             desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        serialNumber,
+        serialNumber, // deviceId is the serialNumber
         defaultDeviceSettings.measurementInterval,
         defaultDeviceSettings.autoIrrigation,
         defaultDeviceSettings.irrigationThreshold,
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
         defaultDeviceSettings.desiredUvLightState
     );
     
-    const newDevice: Partial<Device> = { // Use Partial as userId is not part of Device type by default here
+    const newDevice: Partial<Device> = { 
         serialNumber,
         hardwareIdentifier,
         name,
@@ -92,6 +95,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Device registration error (API):', error);
      let errorMessage = 'An internal server error occurred during device registration.';
+    let errorDetails = error.message;
     if (error.message && typeof error.message === 'string' && error.message.includes('SQLITE_CONSTRAINT_UNIQUE')) {
         if (error.message.includes('devices.serialNumber')) {
             errorMessage = 'Device with this serial number already exists.';
@@ -100,9 +104,9 @@ export async function POST(request: NextRequest) {
         } else {
             errorMessage = 'A unique constraint was violated during registration. Please check serial number and hardware identifier.';
         }
-        return NextResponse.json({ message: errorMessage, details: error.message }, { status: 409 });
+        return NextResponse.json({ message: errorMessage, details: errorDetails }, { status: 409 });
     }
-    return NextResponse.json({ message: errorMessage, details: error.message }, { status: 500 });
+    return NextResponse.json({ message: errorMessage, details: errorDetails }, { status: 500 });
   }
 }
 
@@ -118,23 +122,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: 'Invalid userId' }, { status: 400 });
   }
 
+  const sqlQuery = 'SELECT serialNumber, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp FROM devices WHERE userId = ? ORDER BY name ASC';
   try {
     const db = await getDb();
-    const devices: Device[] = await db.all(
-        'SELECT serialNumber, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp FROM devices WHERE userId = ? ORDER BY name ASC', 
-        userId
-    );
+    const devices: Device[] = await db.all(sqlQuery, userId);
     return NextResponse.json(devices, { status: 200 });
   } catch (error: any) {
-    console.error('Error fetching devices from API (server log):', error); 
+    console.error(`Error fetching devices from API (server log). Query was: ${sqlQuery}. Error:`, error); 
     let clientErrorMessage = 'An internal server error occurred while fetching devices.';
     let errorDetails = error.message;
 
-    if (error.message && typeof error.message === 'string' && error.message.toLowerCase().includes('sqlite_error')) {
-      clientErrorMessage = 'A database error occurred while fetching devices.';
-      if (error.message.toLowerCase().includes('no such column')) {
-        clientErrorMessage = 'Database schema error: A required column is missing. The database might be outdated. If in a development environment, try regenerating the database file.';
-      }
+    if (error.message && typeof error.message === 'string') {
+        if (error.message.toLowerCase().includes('sqlite_error')) {
+            clientErrorMessage = 'A database error occurred while fetching devices.';
+            if (error.message.toLowerCase().includes('no such column')) {
+                clientErrorMessage = 'Database schema error: A required column is missing. The database might be outdated or corrupted. If in a development environment, try deleting the greenview.db file and restarting the application to regenerate the database.';
+            }
+        }
     }
     return NextResponse.json({ message: clientErrorMessage, details: errorDetails }, { status: 500 });
   }
