@@ -67,8 +67,8 @@ const deviceSettingsSchema = z.object({
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { user: authUser } = useAuth(); // Get the authenticated user
-  const [currentUser, setCurrentUser] = useState<User | null>(null); // For user profile settings
+  const { user: authUser } = useAuth(); 
+  const [currentUser, setCurrentUser] = useState<User | null>(null); 
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined);
   const [currentDeviceSettings, setCurrentDeviceSettings] = useState<DeviceSettings | null>(null);
@@ -92,7 +92,7 @@ export default function SettingsPage() {
 
   const deviceForm = useForm<z.infer<typeof deviceSettingsSchema>>({
     resolver: zodResolver(deviceSettingsSchema),
-    defaultValues: { // These will be overridden by API response or defaults
+    defaultValues: { 
         measurementInterval: 5,
         autoIrrigation: true,
         irrigationThreshold: 30,
@@ -105,13 +105,13 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    setCurrentUser(mockUser); // Still using mockUser for profile for now
+    setCurrentUser(mockUser); 
     if (mockUser) {
       userForm.reset({
         name: mockUser.name,
         email: mockUser.email,
         country: mockUser.country,
-        notificationsEnabled: true,
+        notificationsEnabled: true, 
       });
     }
   }, [userForm]);
@@ -149,12 +149,12 @@ export default function SettingsPage() {
     const fetchDeviceSettings = async () => {
       if (selectedDeviceId && authUser) {
         setIsDeviceSettingsLoading(true);
-        setCurrentDeviceSettings(null); // Clear previous settings
+        setCurrentDeviceSettings(null); 
         try {
           const response = await fetch(`/api/device-settings/${selectedDeviceId}?userId=${authUser.id}`);
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || 'Failed to fetch device settings');
+             const errorData = await response.json();
+             throw new Error(errorData.message || 'Failed to fetch device settings');
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
@@ -162,23 +162,41 @@ export default function SettingsPage() {
         } catch (error: any) {
           toast({ title: "Error", description: `Could not load settings for ${selectedDeviceId}: ${error.message}`, variant: "destructive" });
           console.error("Error fetching device settings:", error);
-          // Reset to defaults or clear form if settings not found
-          deviceForm.reset({ deviceId: selectedDeviceId, ...defaultDeviceSettings });
+          // Reset to client-side defaults if API call fails or no settings found (API should return defaults if none exist though)
+          deviceForm.reset({ 
+            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
+            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
+            temperatureUnit: TemperatureUnit.CELSIUS,
+          });
         } finally {
           setIsDeviceSettingsLoading(false);
         }
       } else {
         setCurrentDeviceSettings(null);
-        deviceForm.reset({}); // Reset form if no device selected
+        deviceForm.reset({
+            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
+            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
+            temperatureUnit: TemperatureUnit.CELSIUS,
+        }); 
       }
     };
-    fetchDeviceSettings();
+    if (selectedDeviceId) {
+        fetchDeviceSettings();
+    } else {
+        // If no device is selected, ensure form is reset to initial defaults.
+        deviceForm.reset({
+            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
+            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
+            temperatureUnit: TemperatureUnit.CELSIUS,
+        });
+        setCurrentDeviceSettings(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeviceId, authUser, deviceForm]);
+  }, [selectedDeviceId, authUser]);
 
   const handleUserSave = async (values: z.infer<typeof userSettingsSchema>) => {
     setIsUserSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API
+    await new Promise(resolve => setTimeout(resolve, 1000)); 
     console.log("User settings saved (mock):", values);
     setCurrentUser(prev => prev ? {...prev, ...values} : null);
     setIsUserSaving(false);
@@ -202,8 +220,8 @@ export default function SettingsPage() {
       
       toast({ title: "Device Registered", description: `${data.device.name} has been added.` });
       deviceRegistrationForm.reset();
-      await fetchDevices(); // Refresh device list
-      setSelectedDeviceId(data.device.serialNumber); // Select the newly registered device
+      await fetchDevices(); 
+      setSelectedDeviceId(data.device.serialNumber); 
     } catch (error: any) {
       toast({ title: "Registration Failed", description: error.message, variant: "destructive" });
     } finally {
@@ -218,14 +236,14 @@ export default function SettingsPage() {
         const response = await fetch(`/api/device-settings/${selectedDeviceId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...values, userId: authUser.id }), // Pass userId for backend validation
+            body: JSON.stringify({ ...values, userId: authUser.id }), 
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to save device settings');
         
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
-        setCurrentDeviceSettings(data.settings); // Update local state with saved settings
-        deviceForm.reset(data.settings); // Reset form with saved (and potentially processed) data
+        setCurrentDeviceSettings(data.settings); 
+        deviceForm.reset(data.settings); 
         deviceForm.formState.isDirty = false;
 
     } catch (error: any) {
@@ -235,9 +253,6 @@ export default function SettingsPage() {
     }
   };
   
-  const { defaultDeviceSettings } = await import('@/lib/db');
-
-
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 space-y-8">
       <PageHeader
@@ -245,7 +260,6 @@ export default function SettingsPage() {
         description="Manage your profile, devices, and their configurations."
       />
 
-      {/* User Profile Settings */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>User Profile</CardTitle>
@@ -266,7 +280,6 @@ export default function SettingsPage() {
         ) : <Skeleton className="h-60 w-full" /> }
       </Card>
 
-      {/* Device Registration */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>Register New Device</CardTitle>
@@ -286,8 +299,6 @@ export default function SettingsPage() {
         </Form>
       </Card>
 
-
-      {/* Device Configuration Settings */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>Device Configuration</CardTitle>
@@ -300,7 +311,7 @@ export default function SettingsPage() {
                 <Label htmlFor="device-select">Select Device</Label>
                 {isDevicesLoading ? <Skeleton className="h-10 w-full md:w-[280px]" /> :
                   devices.length > 0 ? (
-                    <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId} disabled={isDevicesLoading}>
+                    <Select value={selectedDeviceId} onValueChange={setSelectedDeviceId} disabled={isDevicesLoading || isDeviceSettingsLoading}>
                       <SelectTrigger id="device-select" className="w-full md:w-[280px]">
                         <SelectValue placeholder="Select a device" />
                       </SelectTrigger>
@@ -324,7 +335,7 @@ export default function SettingsPage() {
                 <div className="space-y-4 pt-4 border-t mt-4">
                   <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min).</FormDescription> <FormMessage /> </FormItem> )}/>
                   <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
-                  <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} defaultValue={field.value}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
+                  <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
                   
                   <FormField control={deviceForm.control} name="autoIrrigation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Irrigation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger("irrigationThreshold"); }} /></FormControl> </FormItem> )}/>
                   {deviceForm.watch("autoIrrigation") && <FormField control={deviceForm.control} name="irrigationThreshold" render={({ field }) => ( <FormItem><FormLabel>Irrigation Threshold (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Water when soil humidity drops below this (10-90%).</FormDescription><FormMessage /></FormItem> )}/>}
