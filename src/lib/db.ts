@@ -64,6 +64,10 @@ export async function getDb() {
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
           desiredUvLightState BOOLEAN DEFAULT FALSE,
+          requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
+          requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
+          requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
+          requestManualLightLevelReading BOOLEAN DEFAULT FALSE,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -110,5 +114,9 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   desiredFanState: false,
   desiredIrrigationState: false,
   desiredUvLightState: false,
+  requestManualTemperatureReading: false,
+  requestManualAirHumidityReading: false,
+  requestManualSoilHumidityReading: false,
+  requestManualLightLevelReading: false,
 };
 

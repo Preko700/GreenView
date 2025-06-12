@@ -5,9 +5,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ControlCard } from '@/components/control/ControlCard';
-import type { Device, DeviceSettings } from '@/lib/types'; // DeviceSettings will now include desired states
+import type { Device, DeviceSettings, SensorType as AppSensorType } from '@/lib/types';
+import { SensorType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle } from 'lucide-react'; 
+import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2 } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import Link from 'next/link';
@@ -22,6 +23,18 @@ interface ControlLoadingStates {
   uvLight: boolean;
 }
 
+interface ManualReadingLoadingStates {
+  [key: string]: boolean; // SensorType as key
+}
+
+const SENSOR_TYPES_FOR_MANUAL_READING: { type: AppSensorType, name: string, icon: React.ElementType }[] = [
+    { type: SensorType.TEMPERATURE, name: "Temperature", icon: Thermometer },
+    { type: SensorType.AIR_HUMIDITY, name: "Air Humidity", icon: CloudDrizzle },
+    { type: SensorType.SOIL_HUMIDITY, name: "Soil Humidity", icon: Leaf },
+    { type: SensorType.LIGHT, name: "Light Level", icon: Sun },
+];
+
+
 export default function ControlPage() {
   const params = useParams();
   const router = useRouter();
@@ -30,21 +43,21 @@ export default function ControlPage() {
   const deviceId = params.deviceId as string;
 
   const [device, setDevice] = useState<Device | null>(null);
-  const [settings, setSettings] = useState<DeviceSettings | null>(null); // Will hold desired states too
+  const [settings, setSettings] = useState<DeviceSettings | null>(null);
   
-  const [loadingStates, setLoadingStates] = useState<ControlLoadingStates>({
+  const [actuatorLoadingStates, setActuatorLoadingStates] = useState<ControlLoadingStates>({
     light: false,
     fan: false,
     irrigation: false,
     uvLight: false,
   });
+  const [manualReadingLoadingStates, setManualReadingLoadingStates] = useState<ManualReadingLoadingStates>({});
   const [isPageLoading, setIsPageLoading] = useState(true);
 
   const fetchDeviceAndSettings = useCallback(async () => {
     if (deviceId && user) {
       setIsPageLoading(true);
       try {
-        // Fetch device details
         const deviceRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
         if (!deviceRes.ok) {
           if (deviceRes.status === 404) {
@@ -59,7 +72,6 @@ export default function ControlPage() {
         const fetchedDevice: Device = await deviceRes.json();
         setDevice(fetchedDevice);
 
-        // Fetch device settings (which includes desired states)
         const settingsRes = await fetch(`/api/device-settings/${deviceId}?userId=${user.id}`);
         if (!settingsRes.ok) {
             const errorData = await settingsRes.json();
@@ -84,7 +96,7 @@ export default function ControlPage() {
     fetchDeviceAndSettings();
   }, [fetchDeviceAndSettings]);
 
-  const handleToggle = async (actuator: keyof ControlLoadingStates, currentDesiredState: boolean) => {
+  const handleToggleActuator = async (actuator: keyof ControlLoadingStates, currentDesiredState: boolean) => {
     if (!device || !user) {
       toast({ title: "Error", description: "Device or user not available.", variant: "destructive" });
       return;
@@ -94,7 +106,7 @@ export default function ControlPage() {
       return;
     }
 
-    setLoadingStates(prev => ({ ...prev, [actuator]: true }));
+    setActuatorLoadingStates(prev => ({ ...prev, [actuator]: true }));
     const newState = !currentDesiredState;
 
     try {
@@ -114,18 +126,52 @@ export default function ControlPage() {
         throw new Error(errorData.message || `Failed to toggle ${actuator}`);
       }
 
-      // Optimistically update UI, or refetch settings for source of truth
       setSettings(prev => prev ? ({ ...prev, [`desired${actuator.charAt(0).toUpperCase() + actuator.slice(1)}State`]: newState }) : null);
       toast({ title: `${actuator.charAt(0).toUpperCase() + actuator.slice(1)} Toggled`, description: `Successfully set ${actuator} to ${newState ? 'ON' : 'OFF'}. Arduino will apply on next poll.` });
 
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
-      // Optionally revert optimistic update or refetch
-      // fetchDeviceAndSettings(); // To get the true state from DB if API call failed after optimistic update
     } finally {
-      setLoadingStates(prev => ({ ...prev, [actuator]: false }));
+      setActuatorLoadingStates(prev => ({ ...prev, [actuator]: false }));
     }
   };
+
+  const handleRequestManualReading = async (sensorType: AppSensorType) => {
+    if (!device || !user) {
+      toast({ title: "Error", description: "Device or user not available.", variant: "destructive" });
+      return;
+    }
+    if (!device.isActive) {
+      toast({ title: "Device Offline", description: "Cannot request reading for an inactive device.", variant: "destructive" });
+      return;
+    }
+
+    setManualReadingLoadingStates(prev => ({ ...prev, [sensorType]: true }));
+    try {
+      const response = await fetch('/api/request-manual-reading', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: device.serialNumber,
+          userId: user.id,
+          sensorType,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `Failed to request manual reading for ${sensorType}`);
+      }
+      toast({
+        title: "Reading Requested",
+        description: `Request for ${sensorType.toLowerCase()} reading sent. Arduino will process on next poll. Check Dashboard for new data.`,
+      });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setManualReadingLoadingStates(prev => ({ ...prev, [sensorType]: false }));
+    }
+  };
+
 
   if (isPageLoading) {
      return (
@@ -134,6 +180,7 @@ export default function ControlPage() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-40 w-full" />)}
         </div>
+        <Skeleton className="h-20 w-full" /> 
       </div>
     );
   }
@@ -161,7 +208,7 @@ export default function ControlPage() {
     <div className="container mx-auto py-8 px-4 md:px-6">
       <PageHeader
         title={`Device Control: ${device.name}`}
-        description={`Manually operate accessories for ${device.serialNumber}.`}
+        description={`Manually operate accessories and request sensor readings for ${device.serialNumber}.`}
         action={
           <Button onClick={() => router.push('/dashboard')} variant="outline">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
@@ -174,21 +221,52 @@ export default function ControlPage() {
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Device Offline</AlertTitle>
           <AlertDescription>
-            This device is currently inactive. Controls may not respond until the device comes online.
+            This device is currently inactive. Controls and manual readings may not respond until the device comes online.
           </AlertDescription>
         </Alert>
       )}
 
-      {settings ? (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <ControlCard title="Main Light" icon={Lightbulb} isActive={settings.desiredLightState} isLoading={loadingStates.light} onToggle={() => handleToggle('light', settings.desiredLightState)} description="Toggle the main grow lights."/>
-          <ControlCard title="Ventilation Fan" icon={Wind} isActive={settings.desiredFanState} isLoading={loadingStates.fan} onToggle={() => handleToggle('fan', settings.desiredFanState)} description="Activate or deactivate the circulation fan." />
-          <ControlCard title="Irrigation System" icon={Droplets} isActive={settings.desiredIrrigationState} isLoading={loadingStates.irrigation} onToggle={() => handleToggle('irrigation', settings.desiredIrrigationState)} description={`Manual override for the watering system. Auto-irrigation is ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
-          <ControlCard title="UV Light" icon={Zap} isActive={settings.desiredUvLightState} isLoading={loadingStates.uvLight} onToggle={() => handleToggle('uvLight', settings.desiredUvLightState)} description="Control the supplementary UV lighting."/>
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-foreground/90">Actuator Controls</h2>
+        {settings ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <ControlCard title="Main Light" icon={Lightbulb} isActive={settings.desiredLightState} isLoading={actuatorLoadingStates.light} onToggle={() => handleToggleActuator('light', settings.desiredLightState)} description="Toggle the main grow lights."/>
+            <ControlCard title="Ventilation Fan" icon={Wind} isActive={settings.desiredFanState} isLoading={actuatorLoadingStates.fan} onToggle={() => handleToggleActuator('fan', settings.desiredFanState)} description="Activate or deactivate the circulation fan." />
+            <ControlCard title="Irrigation System" icon={Droplets} isActive={settings.desiredIrrigationState} isLoading={actuatorLoadingStates.irrigation} onToggle={() => handleToggleActuator('irrigation', settings.desiredIrrigationState)} description={`Manual override for the watering system. Auto-irrigation is ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
+            <ControlCard title="UV Light" icon={Zap} isActive={settings.desiredUvLightState} isLoading={actuatorLoadingStates.uvLight} onToggle={() => handleToggleActuator('uvLight', settings.desiredUvLightState)} description="Control the supplementary UV lighting."/>
+          </div>
+        ) : (
+          <p className="text-muted-foreground">Loading actuator control states...</p>
+        )}
+      </section>
+
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-foreground/90">Manual Sensor Readings</h2>
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {SENSOR_TYPES_FOR_MANUAL_READING.map(sensor => (
+                 <Card key={sensor.type} className="shadow-lg">
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center">
+                            <sensor.icon className="mr-2 h-5 w-5 text-primary" />
+                            {sensor.name}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <Button 
+                            onClick={() => handleRequestManualReading(sensor.type)} 
+                            disabled={manualReadingLoadingStates[sensor.type] || !device.isActive}
+                            className="w-full"
+                            variant="outline"
+                        >
+                            {manualReadingLoadingStates[sensor.type] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChartBig className="mr-2 h-4 w-4" />}
+                            Request Reading
+                        </Button>
+                    </CardContent>
+                 </Card>
+            ))}
         </div>
-      ) : (
-        <p className="text-muted-foreground">Loading control states...</p>
-      )}
+        <p className="text-sm text-muted-foreground mt-3">Note: Requested readings will appear on the Dashboard after the device processes the request.</p>
+      </section>
       
 
       {settings && (

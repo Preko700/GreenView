@@ -96,6 +96,10 @@ export interface DeviceSettings {
   desiredFanState: boolean;
   desiredIrrigationState: boolean;
   desiredUvLightState: boolean;
+  requestManualTemperatureReading?: boolean;
+  requestManualAirHumidityReading?: boolean;
+  requestManualSoilHumidityReading?: boolean;
+  requestManualLightLevelReading?: boolean;
 }
 
 export interface NavItem {
@@ -107,3 +111,4 @@ export interface NavItem {
   label?: string;
   description?: string;
 }
+
