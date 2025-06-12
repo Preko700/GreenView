@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { mockUser } from '@/data/mockData'; 
 import type { User, Device, DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
-import { Loader2, Save, PlusCircle } from 'lucide-react';
+import { Loader2, Save, PlusCircle, AlertTriangle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/form";
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -44,7 +45,6 @@ const userSettingsSchema = z.object({
 
 const deviceRegistrationSchema = z.object({
   serialNumber: z.string().min(3, "Serial number must be at least 3 characters."),
-  // hardwareIdentifier: z.string().min(3, "Hardware Identifier must be at least 3 characters."), // Removido
   name: z.string().min(3, "Device name must be at least 3 characters."),
   plantType: z.string().optional(),
   location: z.string().optional(),
@@ -79,6 +79,7 @@ export default function SettingsPage() {
   const [isDeviceSettingsLoading, setIsDeviceSettingsLoading] = useState(false);
   const [isDeviceSaving, setIsDeviceSaving] = useState(false);
   const [isDevicesLoading, setIsDevicesLoading] = useState(true);
+  const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
 
 
   const userForm = useForm<z.infer<typeof userSettingsSchema>>({
@@ -127,14 +128,17 @@ export default function SettingsPage() {
   const fetchDevices = useCallback(async () => {
     if (!authUser) return;
     setIsDevicesLoading(true);
-    let response; 
+    setDbSchemaError(null); 
     try {
-      response = await fetch(`/api/devices?userId=${authUser.id}`);
+      const response = await fetch(`/api/devices?userId=${authUser.id}`);
       if (!response.ok) {
         let errorMessage = 'Failed to fetch devices';
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorMessage;
+          if (errorMessage.includes("Database schema error")) {
+            setDbSchemaError(errorMessage);
+          }
         } catch (e) {
           const textError = await response.text().catch(() => "Server returned an unreadable error.");
           console.error("Non-JSON error response from /api/devices:", textError);
@@ -156,7 +160,9 @@ export default function SettingsPage() {
         });
       }
     } catch (error: any) {
-      toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
+      if (!dbSchemaError) { // Avoid double-toasting if dbSchemaError is already set
+        toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
+      }
       console.error("Error fetching devices:", error.message);
       setDevices([]); 
       setSelectedDeviceId(undefined);
@@ -164,7 +170,7 @@ export default function SettingsPage() {
     } finally {
       setIsDevicesLoading(false);
     }
-  }, [authUser, toast, deviceForm, selectedDeviceId]);
+  }, [authUser, toast, deviceForm, selectedDeviceId, dbSchemaError]);
   
   useEffect(() => {
     if (authUser) {
@@ -257,7 +263,6 @@ export default function SettingsPage() {
     }
     setIsDeviceRegistering(true);
     try {
-      // hardwareIdentifier no se envía desde el form, la API lo manejará
       const response = await fetch('/api/devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -300,6 +305,31 @@ export default function SettingsPage() {
     }
   };
   
+  if (dbSchemaError) {
+    return (
+      <div className="container mx-auto py-8 px-4 md:px-6 space-y-8">
+        <PageHeader
+          title="Settings"
+          description="Manage your profile, devices, and their configurations."
+        />
+        <Alert variant="destructive" className="mt-8">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Database Schema Error</AlertTitle>
+          <AlertDescription>
+            <p>{dbSchemaError}</p>
+            <p className="mt-2"><strong>To resolve this in a development environment:</strong></p>
+            <ol className="list-decimal list-inside mt-1 space-y-1">
+              <li>Stop your Next.js development server.</li>
+              <li>Delete the <code className="bg-muted px-1 py-0.5 rounded text-sm">greenview.db</code> file from the root of your project.</li>
+              <li>Restart your Next.js development server (this will recreate the database with the correct schema).</li>
+              <li>You will need to register your user and devices again.</li>
+            </ol>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 space-y-8">
       <PageHeader
@@ -336,9 +366,6 @@ export default function SettingsPage() {
           <form onSubmit={deviceRegistrationForm.handleSubmit(handleDeviceRegister)}>
             <CardContent className="space-y-4">
               <FormField control={deviceRegistrationForm.control} name="serialNumber" render={({ field }) => ( <FormItem><FormLabel>Serial Number</FormLabel><FormControl><Input placeholder="Device Serial Number (e.g., GH-00X)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-              {/* El campo Hardware Identifier se ha removido del formulario
-              <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier</FormLabel><FormControl><Input placeholder="Unique ID from your device (e.g., ARDUINO_XYZ)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-              */}
               <FormField control={deviceRegistrationForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Device Name</FormLabel><FormControl><Input placeholder="e.g., My Balcony Garden" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="plantType" render={({ field }) => ( <FormItem><FormLabel>Plant Type (Optional)</FormLabel><FormControl><Input placeholder="e.g., Tomatoes, Herbs" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormItem> )}/>
