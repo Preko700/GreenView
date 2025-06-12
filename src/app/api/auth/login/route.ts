@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
     
     // Ensure password hash exists (should always exist due to NOT NULL constraint if user is found)
     if (!userRow.password) {
-      console.error(`User ${email} found but has no password hash in DB.`); // Should not happen with current schema
-      return NextResponse.json({ message: 'Internal server error' }, { status: 500 }); // Or a generic auth error
+      console.error(`[LOGIN API / SERVER-SIDE] User ${email} found but has no password hash in DB.`);
+      return NextResponse.json({ message: 'Internal server error - user data integrity issue.' }, { status: 500 });
     }
 
     const isPasswordValid = await comparePassword(password, userRow.password);
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ message: 'Login successful', user: userToReturn }, { status: 200 });
   } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
+    console.error('[LOGIN API / SERVER-SIDE] Unhandled error during login process:', error);
+    return NextResponse.json({ message: 'An internal server error occurred during login.' }, { status: 500 });
   }
 }
