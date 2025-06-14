@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Zap, XCircle, CheckCircle, Usb } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 
 interface SensorPayload {
   hardwareId: string;
@@ -16,7 +17,6 @@ interface SensorPayload {
   soilHumidity?: number;
   lightLevel?: number;
   waterLevel?: number; // 0 for LOW, 1 for HIGH
-  // Add other sensor types if your Arduino sends them
 }
 
 export function UsbDeviceConnector() {
@@ -48,15 +48,18 @@ export function UsbDeviceConnector() {
     addLog("Solicitando selección de puerto serial...");
     try {
       const serialPort = await navigator.serial.requestPort();
-      await serialPort.open({ baudRate: 9600 }); // Asegúrate que el baudRate coincida con tu Arduino Serial.begin()
+      await serialPort.open({ baudRate: 9600 });
 
       setPort(serialPort);
       setIsConnected(true);
       addLog(`Conectado a puerto: ${serialPort.getInfo().usbVendorId}:${serialPort.getInfo().usbProductId}`);
       toast({ title: "Dispositivo Conectado", description: "Conexión serial establecida." });
 
-      // Pipe through TextDecoderStream and TextEncoderStream
       if (serialPort.readable && serialPort.writable) {
+        // Ensure streams are recreated if they were closed/aborted previously
+        textDecoderRef.current = new TextDecoderStream();
+        textEncoderRef.current = new TextEncoderStream();
+
         serialPort.readable.pipeTo(textDecoderRef.current.writable);
         textEncoderRef.current.readable.pipeTo(serialPort.writable);
         
@@ -83,8 +86,8 @@ export function UsbDeviceConnector() {
       try {
         const { value, done } = await readerRef.current.read();
         if (done) {
-          addLog("Lector cerrado.");
-          readerRef.current.releaseLock();
+          addLog("Lector cerrado (done=true).");
+          // readerRef.current.releaseLock(); // Not needed, releaseLock is implicit on done or cancel
           break;
         }
         if (value) {
@@ -93,8 +96,7 @@ export function UsbDeviceConnector() {
         }
       } catch (error: any) {
         addLog(`Error en bucle de lectura: ${error.message}`);
-        // Esto puede ocurrir si el dispositivo se desconecta
-        await handleDisconnect(false); // No re-toast, ya se logueó el error
+        await handleDisconnect(false); 
         break;
       }
     }
@@ -110,11 +112,10 @@ export function UsbDeviceConnector() {
       }
       addLog(`Datos parseados para ${data.hardwareId}: Temp=${data.temperature}, AirHum=${data.airHumidity}, SoilHum=${data.soilHumidity}, Light=${data.lightLevel}, WaterLvl=${data.waterLevel}`);
 
-      // Enviar a la API de ingestión
       const response = await fetch('/api/ingest-sensor-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data), // La API /api/ingest-sensor-data espera un objeto o un array de objetos con esta estructura
+        body: JSON.stringify(data),
       });
 
       const result = await response.json();
@@ -128,31 +129,57 @@ export function UsbDeviceConnector() {
     }
   };
 
-
   const handleDisconnect = async (showToastNotification = true) => {
+    addLog("Iniciando desconexión...");
     keepReadingRef.current = false;
 
     if (readerRef.current) {
       try {
-        await readerRef.current.cancel();
-        // readerRef.current.releaseLock(); // releaseLock es llamado automáticamente por cancel() o cuando done es true
+        await readerRef.current.cancel("Desconexión solicitada por el usuario");
+        addLog("Lector cancelado.");
       } catch (error: any) {
         addLog(`Error al cancelar lector: ${error.message}`);
       }
+      // readerRef.current.releaseLock(); // No es necesario, cancel() lo maneja.
+      readerRef.current = null;
     }
-    readerRef.current = null;
     
     if (writerRef.current) {
         try {
-            // No hay un método 'cancel' directo en WritableStreamDefaultWriter como en ReadableStreamDefaultReader.
-            // Se puede intentar cerrar o abortar el writable stream del puerto si es necesario,
-            // pero simplemente liberar el lock y cerrar el puerto suele ser suficiente.
-            await writerRef.current.close(); // o writerRef.current.abort() si es más apropiado
+            // Attempt to close the writer. If it's already closing or closed, it might throw, so catch it.
+            if (!writerRef.current.desiredSize === null) { // Check if it can be closed
+                 await writerRef.current.close();
+                 addLog("Escritor cerrado.");
+            } else {
+                 await writerRef.current.abort("Desconexión solicitada");
+                 addLog("Escritor abortado.");
+            }
         } catch (error: any) {
-            addLog(`Error al cerrar escritor: ${error.message}`);
+            addLog(`Error al cerrar/abortar escritor: ${error.message}`);
         }
+        // writerRef.current.releaseLock(); // No es necesario.
+        writerRef.current = null;
     }
-    writerRef.current = null;
+
+    // Attempt to close TextEncoderStream's writable side if it's not already closed
+    try {
+        if (textEncoderRef.current.writable.locked) {
+            await textEncoderRef.current.writable.getWriter().abort("Desconexión forzada del TextEncoderStream");
+            addLog("TextEncoderStream writable abortado.");
+        }
+    } catch(e: any) {
+        addLog(`Error al abortar TextEncoderStream writable: ${e.message}`);
+    }
+    
+    // Attempt to cancel TextDecoderStream's readable side if it's not already closed
+    try {
+        if (textDecoderRef.current.readable.locked) {
+            await textDecoderRef.current.readable.cancel("Desconexión forzada del TextDecoderStream");
+            addLog("TextDecoderStream readable cancelado.");
+        }
+    } catch(e: any) {
+        addLog(`Error al cancelar TextDecoderStream readable: ${e.message}`);
+    }
 
 
     if (port) {
@@ -166,25 +193,24 @@ export function UsbDeviceConnector() {
     
     setPort(null);
     setIsConnected(false);
-    setIsConnecting(false);
+    setIsConnecting(false); // Ensure this is set if connecting was interrupted
+    
     if (showToastNotification) {
         toast({ title: "Dispositivo Desconectado", description: "Conexión serial terminada." });
     }
-     // Re-initialize TextDecoderStream and TextEncoderStream for next connection
-    textDecoderRef.current = new TextDecoderStream();
-    textEncoderRef.current = new TextEncoderStream();
+    // Do not re-initialize textDecoderRef/textEncoderRef here, do it in handleConnect before piping
   };
   
-  // Cleanup on component unmount
   useEffect(() => {
+    const currentPort = port; // Capture port for cleanup
     return () => {
-      if (isConnected || port) {
+      if (isConnected || currentPort) { // Use captured port
+        addLog("Ejecutando cleanup de useEffect...");
         handleDisconnect(false);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, port]);
-
+  }, [isConnected, port]); // Dependencies remain, but logic inside uses captured 'port' for safety.
 
   return (
     <Card className="shadow-lg">
@@ -202,12 +228,12 @@ export function UsbDeviceConnector() {
       <CardContent className="space-y-4">
         <div className="flex items-center space-x-4">
           {!isConnected ? (
-            <Button onClick={handleConnect} disabled={isConnecting || isConnected}>
+            <Button onClick={handleConnect} disabled={isConnecting}>
               {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
               Conectar Dispositivo
             </Button>
           ) : (
-            <Button onClick={() => handleDisconnect()} variant="destructive">
+            <Button onClick={() => handleDisconnect(true)} variant="destructive">
               <XCircle className="mr-2 h-4 w-4" />
               Desconectar Dispositivo
             </Button>
