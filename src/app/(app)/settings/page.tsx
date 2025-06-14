@@ -35,6 +35,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector'; // Importar el nuevo componente
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -336,6 +337,8 @@ export default function SettingsPage() {
         title="Settings"
         description="Manage your profile, devices, and their configurations."
       />
+
+      <UsbDeviceConnector />
 
       <Card className="shadow-lg">
         <CardHeader>
