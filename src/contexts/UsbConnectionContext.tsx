@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import type { Device, DeviceSettings } from '@/lib/types'; // Asegúrate que Device y DeviceSettings estén aquí
+import type { Device, DeviceSettings } from '@/lib/types';
 import { useAuth } from './AuthContext';
 
 interface SerialPort {
@@ -67,10 +67,6 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const _internalDisconnectPort = useCallback(async (showToastUserInitiated = true) => {
-    if (disconnectInitiatedRef.current && !isConnected && !isConnecting && !port) {
-      // addLog("DISC WARN: Desconexión ya en progreso o completada, o nada que desconectar.");
-      // return; // Puede ser muy agresivo, mejor dejar que continúe y limpie lo que pueda
-    }
     addLog("DISC: Iniciando proceso de desconexión...");
     disconnectInitiatedRef.current = true;
     keepReading.current = false;
@@ -86,19 +82,23 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       readableStreamClosedRef.current = null;
     }
     
-    const currentWriter = writer; // Usar la copia del estado en el momento de la llamada
+    const currentWriter = writer; 
     if (currentWriter) {
       try {
-        // No es necesario llamar a releaseLock() explícitamente si se llama a close().
-        await currentWriter.close();
-        addLog("DISC: Escritor cerrado.");
+        if (currentWriter.close) { // Check if close method exists
+            await currentWriter.close();
+            addLog("DISC: Escritor cerrado.");
+        } else {
+            addLog("DISC WARN: Escritor no tiene método close(). Liberando bloqueo si es posible.");
+            if(currentWriter.releaseLock) currentWriter.releaseLock();
+        }
       } catch (error: any) {
-        addLog(`DISC WARN: Error cerrando escritor: ${error.message}`);
+        addLog(`DISC WARN: Error manejando escritor: ${error.message}`);
       }
-      setWriter(null); // Actualizar estado de React
+      setWriter(null); 
     }
 
-    const currentPort = port; // Usar la copia del estado
+    const currentPort = port; 
     if (currentPort) {
       try {
         await currentPort.close();
@@ -113,16 +113,15 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
            toast({ title: "Error al Desconectar", description: error.message, variant: "destructive" });
         }
       }
-      setPort(null); // Actualizar estado de React
+      setPort(null); 
     }
 
     setIsConnected(false);
     setIsConnecting(false); 
     setPortInfo(null);
-    setConnectedDeviceHardwareId(null); // Asegurar que el ID de hardware se limpie
-    // No resetear disconnectInitiatedRef.current aquí, se hará al inicio de connectPort
+    setConnectedDeviceHardwareId(null); 
     addLog("DISC: Estado de conexión reseteado post-desconexión.");
-  }, [addLog, toast, port, writer, isConnected, isConnecting]); // Asegurar todas las dependencias correctas
+  }, [addLog, toast, port, writer]); 
 
   const internalDisconnectPortRef = useRef(_internalDisconnectPort);
   useEffect(() => {
@@ -195,67 +194,71 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   }, [sendSerialCommand, addLog, user]);
   
   const processReceivedData = useCallback(async (jsonString: string) => {
+    let data;
     try {
-      const data = JSON.parse(jsonString);
-      
-      if (data.hardwareId && !connectedDeviceHardwareId) { // Solo setear si no hay uno ya o es diferente
-        addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId}: ${jsonString}`);
-        setConnectedDeviceHardwareId(data.hardwareId); 
-      } else if (data.hardwareId && data.hardwareId === connectedDeviceHardwareId) {
-         // addLog(`PARSE: Datos JSON para ${connectedDeviceHardwareId}: ${jsonString}`); 
-      } else if (data.hardwareId && data.hardwareId !== connectedDeviceHardwareId && connectedDeviceHardwareId) {
-        addLog(`PARSE WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${connectedDeviceHardwareId}). Datos ignorados.`);
-        return; 
-      } else if (!data.hardwareId && jsonString.includes("type")) { // Mensaje de ACK sin hardwareId (algunos Arduinos podrían no incluirlo en ACKs)
-         addLog(`PARSE: Datos JSON parseados (sin ID de hardware explícito en mensaje, usando el conectado ${connectedDeviceHardwareId}): ${jsonString}`);
-      } else {
-         addLog(`PARSE: Datos JSON parseados (estructura desconocida o hardwareId faltante): ${jsonString}`);
-      }
-
-      if (data.type === "hello_arduino" && data.hardwareId) {
-        addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId}`);
-        // SYNC_EFFECT se encargará de llamar a fetchAndSyncDeviceConfiguration
-      } else if (data.type === "ack_interval_set") {
-        addLog(`MSG: ACK de intervalo recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
-      } else if (data.type === "ack_photo_interval_set") {
-        addLog(`MSG: ACK de intervalo de foto recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
-      } else if (data.type === "ack_temp_unit_set") {
-        addLog(`MSG: ACK de unidad de temperatura recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nueva unidad: ${data.new_unit}`);
-      } else if (data.type === "ack_auto_irrigation_set") {
-        addLog(`MSG: ACK de auto riego recibido de ${data.hardwareId || connectedDeviceHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
-      } else if (data.type === "ack_auto_ventilation_set") {
-        addLog(`MSG: ACK de auto ventilación recibido de ${data.hardwareId || connectedDeviceHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
-      } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined)) { // Es un mensaje de datos de sensores
-        addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
-        try {
-            addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
-            const response = await fetch('/api/ingest-sensor-data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
-            addLog(`API: Datos de ${data.hardwareId} enviados al servidor: ${result.message}`);
-        } catch (apiError: any) {
-            addLog(`API ERR: Error enviando datos de ${data.hardwareId}: ${apiError.message}`);
-            console.error("API Ingest Error:", apiError);
-        }
-      } else {
-        // addLog(`MSG WARN: Tipo de mensaje desconocido o hardwareId faltante en un mensaje no de sensor: ${jsonString}`);
-      }
-    } catch (error) {
-      addLog(`PARSE ERR: Error parseando JSON o procesando datos: '${jsonString}'. Error: ${(error as Error).message}`);
+      data = JSON.parse(jsonString);
+    } catch (error: any) {
+      addLog(`PARSE ERR: Error parseando JSON: '${jsonString}'. Error: ${error.message}`);
+      return; 
     }
-  }, [addLog, connectedDeviceHardwareId, setConnectedDeviceHardwareId]);
+      
+    if (data.hardwareId && data.hardwareId !== connectedDeviceHardwareId && !connectedDeviceHardwareId) {
+      addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId}: ${jsonString}`);
+      setConnectedDeviceHardwareId(data.hardwareId); 
+    } else if (data.hardwareId && data.hardwareId === connectedDeviceHardwareId) {
+        // addLog(`PARSE: Datos JSON para ${connectedDeviceHardwareId}: ${jsonString}`); 
+    } else if (data.hardwareId && data.hardwareId !== connectedDeviceHardwareId && connectedDeviceHardwareId) {
+      addLog(`PARSE WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${connectedDeviceHardwareId}). Datos ignorados.`);
+      return; 
+    } else if (!data.hardwareId && jsonString.includes("type")) { 
+        // addLog(`PARSE: Datos JSON parseados (sin ID de hardware explícito en mensaje, usando el conectado ${connectedDeviceHardwareId}): ${jsonString}`);
+    } else if (!data.hardwareId && !jsonString.includes("type")){
+        addLog(`PARSE WARN: Datos JSON parseados (estructura desconocida o hardwareId/type faltante): ${jsonString}`);
+        return; // Ignorar si no hay hardwareId ni type, probablemente ruido.
+    }
+
+
+    if (data.type === "hello_arduino") {
+      // No es necesario hacer nada más aquí si ya seteamos el hardwareId arriba. El SYNC_EFFECT se encargará.
+      addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId}`);
+    } else if (data.type === "ack_interval_set") {
+      addLog(`MSG: ACK de intervalo recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
+    } else if (data.type === "ack_photo_interval_set") {
+      addLog(`MSG: ACK de intervalo de foto recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
+    } else if (data.type === "ack_temp_unit_set") {
+      addLog(`MSG: ACK de unidad de temperatura recibido de ${data.hardwareId || connectedDeviceHardwareId}. Nueva unidad: ${data.new_unit}`);
+    } else if (data.type === "ack_auto_irrigation_set") {
+      addLog(`MSG: ACK de auto riego recibido de ${data.hardwareId || connectedDeviceHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
+    } else if (data.type === "ack_auto_ventilation_set") {
+      addLog(`MSG: ACK de auto ventilación recibido de ${data.hardwareId || connectedDeviceHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
+    } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined)) { 
+      addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
+      try {
+          addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
+          const response = await fetch('/api/ingest-sensor-data', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data), // Enviar el objeto data directamente
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
+          addLog(`API: Datos de ${data.hardwareId} enviados al servidor: ${result.message}`);
+      } catch (apiError: any) {
+          addLog(`API ERR: Error enviando datos de ${data.hardwareId}: ${apiError.message}`);
+          console.error("API Ingest Error:", apiError);
+      }
+    } else {
+      // addLog(`MSG WARN: Tipo de mensaje desconocido o datos incompletos: ${jsonString}`);
+    }
+  }, [addLog, connectedDeviceHardwareId /* No incluir setConnectedDeviceHardwareId aquí para evitar bucles si la función se pasa como dependencia a otros hooks que también lo setean */]);
 
   const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
-    // Reiniciar el decodificador y el buffer de línea para CADA nueva sesión de lectura
-    textDecoder.current = new TextDecoderStream(); 
-    lineBufferRef.current = ''; 
     addLog("RL: Iniciando bucle de lectura de strings...");
-
-    const readableStream = currentPortInstance.readable.pipeThrough(textDecoder.current);
+    
+    const currentTextDecoder = new TextDecoderStream();
+    lineBufferRef.current = ''; 
+    
+    const readableStream = currentPortInstance.readable.pipeThrough(currentTextDecoder);
     readableStreamClosedRef.current = readableStream.getReader();
     addLog("RL: Lector obtenido del TextDecoderStream.");
 
@@ -286,7 +289,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (error: any) {
-      if (!disconnectInitiatedRef.current) {
+      if (!disconnectInitiatedRef.current && error.name !== 'AbortError') { // AbortError es esperado en desconexión
         addLog(`RL ERR: Error en el bucle de lectura: ${error.message}`);
         console.error("RL ERR: Read loop error:", error);
       }
@@ -294,8 +297,6 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog("RL: Ejecutando bloque finally del bucle de lectura.");
       if (readableStreamClosedRef.current) {
         try {
-            // No es necesario cancelar explícitamente aquí si el bucle terminó por 'done'
-            // o si la desconexión ya lo manejó. Solo liberar el bloqueo.
             readableStreamClosedRef.current.releaseLock();
         } catch (releaseError: any) {
              addLog(`RL WARN: Error en finally al liberar lector: ${releaseError.message}`);
@@ -308,14 +309,13 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   }, [addLog, processReceivedData]);
 
   const connectPort = useCallback(async () => {
-    // Limpieza rigurosa al inicio absoluto del intento de conexión
     disconnectInitiatedRef.current = false;
-    keepReading.current = true; // Permitir que el nuevo bucle de lectura se ejecute
-    lineBufferRef.current = ''; // Limpiar buffer
-    // Si hay un puerto antiguo, intentar cerrarlo antes de abrir uno nuevo.
-    if (port) {
-        addLog("CONN: Puerto anterior existente detectado. Intentando desconexión silenciosa primero.");
-        await internalDisconnectPortRef.current(false); // Desconexión silenciosa
+    lineBufferRef.current = ''; // Limpieza inicial agresiva
+    keepReading.current = true; 
+
+    if (port || writer) {
+        addLog("CONN WARN: Puerto/escritor anterior existente detectado. Intentando desconexión silenciosa primero.");
+        await internalDisconnectPortRef.current(false); 
     }
     
     if (typeof window === 'undefined' || !("serial" in navigator)) {
@@ -323,19 +323,23 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       toast({ title: "Error de Navegador", description: "Tu navegador no soporta la API Web Serial.", variant: "destructive" });
       return;
     }
-    if (isConnecting) { // Evitar múltiples intentos de conexión simultáneos
+    if (isConnecting) { 
       addLog("CONN WARN: Conexión ya en progreso.");
       return;
     }
 
     setIsConnecting(true);
     addLog("CONN: Solicitando selección de puerto serial...");
+    
+    // Nueva limpieza justo antes de requestPort
+    lineBufferRef.current = '';
+    textDecoder.current = new TextDecoderStream(); // Reinicializar aquí también
 
     try {
       const selectedPort = await (navigator.serial as any).requestPort();
       await selectedPort.open({ baudRate: 9600 });
 
-      setPort(selectedPort); // Estado React para el puerto
+      setPort(selectedPort); 
       const portInformation = selectedPort.getInfo();
       const vid = portInformation.usbVendorId ? `0x${portInformation.usbVendorId.toString(16).padStart(4, '0')}` : 'N/A';
       const pid = portInformation.usbProductId ? `0x${portInformation.usbProductId.toString(16).padStart(4, '0')}` : 'N/A';
@@ -344,16 +348,20 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog(`CONN: Puerto ${portLabel} abierto.`);
       
       const currentWriter = selectedPort.writable.getWriter();
-      setWriter(currentWriter); // Estado React para el escritor
+      setWriter(currentWriter); 
       setIsConnected(true);   
       addLog(`CONN: Conectado a puerto: ${portLabel}. Writer y estado de conexión establecidos.`);
       
-      readLoop(selectedPort); // Iniciar el bucle de lectura con el nuevo puerto
+      // Asegurar que el buffer y el decodificador estén prístinos ANTES de iniciar el bucle de lectura
+      lineBufferRef.current = ''; 
+      textDecoder.current = new TextDecoderStream();
+
+      readLoop(selectedPort); 
 
       selectedPort.addEventListener('disconnect', () => {
         addLog(`EVT: Puerto ${portLabel} desconectado externamente.`);
         toast({ title: "Dispositivo Desconectado", description: `El dispositivo ${portLabel} se ha desconectado.`, variant: "destructive"});
-        internalDisconnectPortRef.current(false); // Usar la referencia para la desconexión interna
+        internalDisconnectPortRef.current(false); 
       });
 
     } catch (error: any) {
@@ -364,13 +372,13 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         console.error("CONN ERR: Error opening port:", error);
         toast({ title: "Error de Conexión", description: `No se pudo conectar: ${error.message}`, variant: "destructive" });
       }
-      // Asegurar limpieza completa en caso de error durante la conexión
-      await internalDisconnectPortRef.current(false); 
+      await internalDisconnectPortRef.current(false); // Asegurar limpieza completa
+      setPort(null); setWriter(null); setIsConnected(false); setConnectedDeviceHardwareId(null); // Doble seguridad
       
     } finally {
-      setIsConnecting(false); // La conexión ha terminado (exitosa o no)
+      setIsConnecting(false); 
     }
-  }, [addLog, toast, readLoop, port, isConnecting, _internalDisconnectPort]); // Añadido _internalDisconnectPort
+  }, [addLog, toast, readLoop, port, writer, isConnecting, _internalDisconnectPort, user]);
 
   useEffect(() => {
     addLog(`SYNC_EFFECT: Triggered. hwId: ${connectedDeviceHardwareId}, writer: ${!!writer}, connected: ${isConnected}, user: ${!!user}`);
@@ -406,7 +414,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     const handleBeforeUnload = () => {
       if (port) { 
         addLog("UNLOAD: Descarga de página detectada, desconectando puerto...");
-        internalDisconnectPortRef.current(false); // Usar la ref aquí
+        internalDisconnectPortRef.current(false); 
       }
     };
 
@@ -418,11 +426,11 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         window.removeEventListener('beforeunload', handleBeforeUnload);
       }
-      // La desconexión al desmontar el componente principal (RootLayout) es más compleja
-      // y puede que no sea necesaria si beforeunload ya lo maneja.
-      // Si es estrictamente necesario, podría considerarse, pero con cuidado.
+      // if (port) { // Desconexión al desmontar el componente raíz (RootLayout)
+      //    internalDisconnectPortRef.current(false);
+      // }
     };
-  }, [port, addLog]); // port y addLog son dependencias estables o referenciadas
+  }, [port, addLog]); 
 
   useEffect(() => {
     if (!isAuthenticated && port) { 
@@ -460,5 +468,6 @@ export function useUsbConnection() {
   }
   return context;
 }
+    
 
     
