@@ -196,7 +196,9 @@ export function UsbDeviceConnector() {
                 resultJson = JSON.parse(resultText);
             } catch(e) {
                 addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
-                if (!response.ok) throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
+                if (!response.ok) {
+                  throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
+                }
                 return;
             }
 
@@ -341,7 +343,9 @@ export function UsbDeviceConnector() {
     } catch (error: any) {
       if (keepReadingRef.current) { 
         addLog(`Error en bucle de lectura de strings: ${error.message}. Stack: ${error.stack}`);
-        if (portRef.current) await disconnectPort(portRef.current, true);
+        if (portRef.current) {
+          await disconnectPort(portRef.current, true);
+        }
       } else { 
          addLog(`Bucle de lectura (desconexión iniciada) encontró error/cierre esperado: ${error.message}`);
       }
@@ -449,7 +453,7 @@ export function UsbDeviceConnector() {
       setIsConnected(false);
       setIsConnecting(false);
     }
-  }, [authUser, addLog, toast, isConnecting, disconnectPort, readLoop, fetchAndSetDeviceInterval, setPortInfo, setIsConnected, setIsConnecting, setConnectedDeviceHardwareId]);
+  }, [authUser, addLog, toast, isConnecting, disconnectPort, readLoop, fetchAndSetDeviceInterval]);
 
 
   useEffect(() => {
@@ -458,10 +462,10 @@ export function UsbDeviceConnector() {
       if (portInstanceAtEffectTime) {
         addLog("Cleanup de useEffect (desmontaje)... Desconectando puerto.");
         disconnectPort(portInstanceAtEffectTime, false)
-          .catch(e => addLog(`Error en desconexión durante desmontaje: ${e.message}`));
+          .catch((e: any) => addLog(`Error en desconexión durante desmontaje: ${e.message}`));
       }
     };
-  }, [disconnectPort, addLog]);
+  }, [addLog, disconnectPort]);
 
   return (
     <Card className="shadow-lg">
@@ -510,3 +514,5 @@ export function UsbDeviceConnector() {
     </Card>
   );
 }
+
+    
