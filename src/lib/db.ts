@@ -19,6 +19,9 @@ export async function getDb() {
       driver: sqlite3.Database,
     });
 
+    // Habilitar el modo WAL para mejorar la concurrencia
+    await db.exec('PRAGMA journal_mode = WAL;');
+
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,6 +52,9 @@ export async function getDb() {
       );
     `);
     
+    // Añadir índice en devices.userId
+    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices (userId);');
+
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
           deviceId TEXT PRIMARY KEY,
@@ -119,4 +125,3 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   requestManualSoilHumidityReading: false,
   requestManualLightLevelReading: false,
 };
-
