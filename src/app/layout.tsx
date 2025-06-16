@@ -4,6 +4,7 @@ import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { UsbConnectionProvider } from '@/contexts/UsbConnectionContext'; // NUEVA IMPORTACIÓN
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -29,9 +30,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
-          <AppLayout>
-            {children}
-          </AppLayout>
+          <UsbConnectionProvider> {/* ENVOLVER AQUÍ */}
+            <AppLayout>
+              {children}
+            </AppLayout>
+          </UsbConnectionProvider>
           <Toaster />
         </AuthProvider>
       </body>
