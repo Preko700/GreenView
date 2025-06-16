@@ -40,51 +40,50 @@ export const mockSensorData: { [deviceId: string]: SensorData[] } = {
 export const mockHistoricalSensorData: { [deviceId: string]: { [type in SensorType]?: SensorData[] } } = {
   'GH-001': {
     [SensorType.TEMPERATURE]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_temp_${i}`,
+      id: `hist_temp_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.TEMPERATURE,
-      value: 20 + Math.sin(i / 3) * 5 + Math.random() * 2,
+      value: parseFloat((20 + Math.sin(i / 3) * 5 + Math.random() * 2).toFixed(1)),
       unit: '°C',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
     [SensorType.AIR_HUMIDITY]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_airh_${i}`,
+      id: `hist_airh_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.AIR_HUMIDITY,
-      value: 50 + Math.cos(i / 4) * 10 + Math.random() * 5,
+      value: Math.round(50 + Math.cos(i / 4) * 10 + Math.random() * 5),
       unit: '%',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
      [SensorType.SOIL_HUMIDITY]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_soilh_${i}`,
+      id: `hist_soilh_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.SOIL_HUMIDITY,
-      value: 45 + Math.sin(i / 2) * 15 + Math.random() * 5,
+      value: Math.round(45 + Math.sin(i / 2) * 15 + Math.random() * 5),
       unit: '%',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
     [SensorType.LIGHT]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_light_${i}`,
+      id: `hist_light_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.LIGHT,
-      value: Math.max(0, 8000 + Math.sin(i / 7.6) * 7000 + Math.random() * 1000), // Simula ciclo día/noche
+      value: Math.round(Math.max(0, 8000 + Math.sin(i / 7.6) * 7000 + Math.random() * 1000)), // Simula ciclo día/noche
       unit: 'lux',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
     [SensorType.WATER_LEVEL]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_water_${i}`,
+      id: `hist_water_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.WATER_LEVEL,
-      // Simula cambios discretos: mayormente 1 (HIGH), ocasionalmente 0 (LOW)
       value: (i % 8 === 0 && i > 0) ? 0 : 1, 
       unit: 'state', // 0 for LOW, 1 for HIGH
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
     [SensorType.PH]: Array.from({ length: 24 }, (_, i) => ({
-      id: `hist_ph_${i}`,
+      id: `hist_ph_gh001_${i}`,
       deviceId: 'GH-001',
       type: SensorType.PH,
-      value: 6.0 + Math.sin(i/5) * 0.5 + Math.random() * 0.2, // Simula variaciones leves de pH
+      value: parseFloat((6.0 + Math.sin(i/5) * 0.5 + Math.random() * 0.2).toFixed(1)), // Simula variaciones leves de pH
       unit: '',
       timestamp: Date.now() - 1000 * 60 * 60 * (24 - i),
     })),
@@ -128,14 +127,65 @@ export const getMockDeviceSettings = (deviceId: string): DeviceSettings | undefi
 
 
 export const getMockSensorData = (deviceId: string): SensorData[] => mockSensorData[deviceId] || [];
+
 export const getMockHistoricalSensorData = (deviceId: string, sensorType: SensorType): SensorData[] => {
-  // Asegurarse de que GH-002 también tenga datos históricos simulados para todos los tipos si es necesario
-  // Por ahora, solo GH-001 tiene un conjunto completo.
   if (mockHistoricalSensorData[deviceId] && mockHistoricalSensorData[deviceId][sensorType]) {
     return mockHistoricalSensorData[deviceId][sensorType] || [];
   }
-  // Devolver un array vacío si no hay datos para ese deviceId o sensorType
-  return [];
-};
-export const getMockDeviceImages = (deviceId: string): DeviceImage[] => mockDeviceImages[deviceId] || [];
 
+  // If deviceId or sensorType data is not explicitly mocked, generate some plausible generic data
+  const generatedData: SensorData[] = Array.from({ length: 24 }, (_, i) => {
+    let rawValue;
+    let finalValue;
+    let unit;
+    const baseTimestamp = Date.now() - 1000 * 60 * 60 * (24 - i); // Last 24 hours
+
+    switch (sensorType) {
+      case SensorType.TEMPERATURE:
+        rawValue = 15 + Math.sin(i / 3.5) * 7 + Math.random() * 3; // Range 5-25 approx
+        finalValue = parseFloat(rawValue.toFixed(1));
+        unit = '°C';
+        break;
+      case SensorType.AIR_HUMIDITY:
+        rawValue = 40 + Math.cos(i / 4.2) * 15 + Math.random() * 10; // Range 15-65 approx
+        finalValue = Math.round(rawValue);
+        unit = '%';
+        break;
+      case SensorType.SOIL_HUMIDITY:
+        rawValue = 30 + Math.sin(i / 2.5) * 20 + Math.random() * 10; // Range 0-60 approx
+        finalValue = Math.round(rawValue);
+        unit = '%';
+        break;
+      case SensorType.LIGHT:
+        rawValue = Math.max(0, 5000 + Math.sin(i / 7.0) * 4500 + Math.random() * 1000); // Simulates day/night
+        finalValue = Math.round(rawValue);
+        unit = 'lux';
+        break;
+      case SensorType.WATER_LEVEL:
+        rawValue = (i % 6 === 0 && i > 0) ? 0 : 1; // Mostly HIGH, occasionally LOW
+        finalValue = rawValue; // Already 0 or 1
+        unit = 'state';
+        break;
+      case SensorType.PH:
+        rawValue = 5.5 + Math.sin(i/5.5) * 0.7 + Math.random() * 0.3; // Simulates pH variations
+        finalValue = parseFloat(rawValue.toFixed(1));
+        unit = '';
+        break;
+      default: // Should not happen if SensorType enum is exhaustive for SENSOR_TYPES_FOR_DISPLAY
+        rawValue = Math.random() * 100;
+        finalValue = parseFloat(rawValue.toFixed(1));
+        unit = 'N/A';
+    }
+    return {
+      id: `gen_hist_${sensorType.toString()}_${deviceId.replace(/[^a-zA-Z0-9]/g, '')}_${i}`,
+      deviceId: deviceId,
+      type: sensorType,
+      value: finalValue,
+      unit: unit,
+      timestamp: baseTimestamp,
+    };
+  });
+  return generatedData;
+};
+
+export const getMockDeviceImages = (deviceId: string): DeviceImage[] => mockDeviceImages[deviceId] || [];
