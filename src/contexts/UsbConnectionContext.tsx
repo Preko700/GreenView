@@ -116,9 +116,10 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     }
 
     setIsConnected(false);
-    setIsConnecting(false); // Asegurarse de que isConnecting también se resetee
+    setIsConnecting(false); 
     setPortInfo(null);
     setConnectedDeviceHardwareId(null);
+    // disconnectInitiatedRef.current = false; // Reset for next potential connection attempt
     addLog("DISC: Estado de conexión reseteado post-desconexión.");
   }, [addLog, toast, port, writer, isConnected, isConnecting]); 
 
@@ -200,7 +201,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId}: ${jsonString}`);
         setConnectedDeviceHardwareId(data.hardwareId); 
       } else if (data.hardwareId && data.hardwareId === connectedDeviceHardwareId) {
-         // addLog(`PARSE: Datos JSON para ${connectedDeviceHardwareId}: ${jsonString}`); // Puede ser muy verboso
+         // addLog(`PARSE: Datos JSON para ${connectedDeviceHardwareId}: ${jsonString}`); 
       } else if (data.hardwareId && data.hardwareId !== connectedDeviceHardwareId && connectedDeviceHardwareId) {
         addLog(`PARSE WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${connectedDeviceHardwareId}). Datos ignorados.`);
         return; 
@@ -210,6 +211,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
 
       if (data.type === "hello_arduino" && data.hardwareId) {
         addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId}`);
+        // SYNC_EFFECT will handle calling fetchAndSyncDeviceConfiguration
       } else if (data.type === "ack_interval_set" && data.hardwareId) {
         addLog(`MSG: ACK de intervalo recibido de ${data.hardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
       } else if (data.type === "ack_photo_interval_set" && data.hardwareId) {
@@ -220,10 +222,9 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         addLog(`MSG: ACK de auto riego recibido de ${data.hardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
       } else if (data.type === "ack_auto_ventilation_set" && data.hardwareId) {
         addLog(`MSG: ACK de auto ventilación recibido de ${data.hardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
-      } else if (data.hardwareId) { 
-        // addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`); // Puede ser muy verboso
+      } else if (data.hardwareId) { // This is a generic sensor data message
+        addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
         try {
-            // addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`); // Verboso
             const response = await fetch('/api/ingest-sensor-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -242,7 +243,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       addLog(`PARSE ERR: Error parseando JSON o procesando datos: '${jsonString}'. Error: ${(error as Error).message}`);
     }
-  }, [addLog, connectedDeviceHardwareId]);
+  }, [addLog, connectedDeviceHardwareId, setConnectedDeviceHardwareId]);
 
   const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
     textDecoder.current = new TextDecoderStream(); 
@@ -372,6 +373,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     }
   }, [connectedDeviceHardwareId, writer, isConnected, user, fetchAndSyncDeviceConfiguration, addLog]);
 
+
   const resyncConfiguration = useCallback(async (hardwareId: string) => {
     addLog(`RESYNC: Solicitado para ${hardwareId}. writer: ${!!writer}, connected: ${isConnected}, user: ${!!user}`);
     if (isConnected && writer && hardwareId && user) {
@@ -445,4 +447,6 @@ export function useUsbConnection() {
   }
   return context;
 }
+
+
     
