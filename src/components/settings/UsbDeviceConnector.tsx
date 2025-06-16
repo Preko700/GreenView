@@ -495,11 +495,23 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
   }, [addLog, disconnectPort]);
 
   useEffect(() => {
+    // Log para ver si el useEffect se dispara y con qué valores
+    addLog(
+      `useEffect[settingsTimestamp] triggered. Timestamp: ${settingsLastUpdatedTimestamp}, Connected: ${isConnected}, DeviceID: ${connectedDeviceHardwareId}`
+    );
     if (settingsLastUpdatedTimestamp && isConnected && connectedDeviceHardwareId) {
-      addLog(`Detectado cambio en configuración del dispositivo (timestamp: ${settingsLastUpdatedTimestamp}). Re-aplicando intervalo...`);
+      addLog(
+        `SYNC: Configuración del dispositivo CAMBIÓ (ts: ${settingsLastUpdatedTimestamp}). Re-aplicando intervalo para ${connectedDeviceHardwareId}...`
+      );
       fetchAndSetDeviceInterval(connectedDeviceHardwareId);
     }
-  }, [settingsLastUpdatedTimestamp, isConnected, connectedDeviceHardwareId, fetchAndSetDeviceInterval, addLog]);
+  }, [
+    settingsLastUpdatedTimestamp,
+    isConnected,
+    connectedDeviceHardwareId,
+    fetchAndSetDeviceInterval,
+    addLog,
+  ]);
 
   return (
     <Card className="shadow-lg">
@@ -550,3 +562,5 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
     </Card>
   );
 }
+
+    
