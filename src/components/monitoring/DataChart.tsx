@@ -51,13 +51,34 @@ export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
   } satisfies ChartConfig;
   
   const yAxisDomain = useMemo(() => {
-    if (!sensorData || sensorData.length === 0) return [0, 100]; // Default domain
+    if (!sensorData || sensorData.length === 0) {
+      // For water level (0 or 1), set a specific domain to make changes visible
+      if (sensorType === SensorType.WATER_LEVEL) {
+        return [-0.2, 1.2]; // e.g., slightly outside 0 and 1
+      }
+      return [0, 100]; // Default domain for other sensors if no data
+    }
+    
     const values = sensorData.map(d => d.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const padding = (max - min) * 0.1 || 5; // Add 10% padding or 5 if range is 0
-    return [Math.floor(min - padding), Math.ceil(max + padding)];
-  }, [sensorData]);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+
+    if (sensorType === SensorType.WATER_LEVEL) {
+      // Ensure domain for water level is appropriate for 0/1 values
+      min = -0.2;
+      max = 1.2;
+    } else {
+      const padding = (max - min) * 0.1 || 5; // Add 10% padding or 5 if range is 0
+      min = Math.floor(min - padding);
+      max = Math.ceil(max + padding);
+      // Ensure min is not excessively low, e.g., for humidity/percentage never below 0 or much above 100
+      if (sensorType === SensorType.AIR_HUMIDITY || sensorType === SensorType.SOIL_HUMIDITY) {
+        min = Math.max(0, min);
+        max = Math.min(110, max); // Allow a bit above 100 for padding
+      }
+    }
+    return [min, max];
+  }, [sensorData, sensorType]);
 
 
   if (!sensorData || sensorData.length === 0) {
@@ -69,13 +90,26 @@ export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
       </Card>
     );
   }
+  
+  const lineType = sensorType === SensorType.WATER_LEVEL ? "stepAfter" : "monotone";
+  const yAxisTickFormatter = (value: number) => {
+    if (sensorType === SensorType.WATER_LEVEL) {
+      if (value === 0) return "LOW";
+      if (value === 1) return "HIGH";
+      return ""; // Hide other ticks for step chart
+    }
+    return `${value}${sensorData[0]?.unit || ''}`;
+  };
+   const yAxisTicks = sensorType === SensorType.WATER_LEVEL ? [0, 1] : undefined;
+
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title || `${sensorTypeToFriendlyName[sensorType]} Over Time`}</CardTitle>
         <CardDescription>
-          Showing data for the last 24 hours (example).
+          {/* Using a more generic description as the data is mock */}
+          Displaying historical sensor data.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -96,37 +130,45 @@ export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              // tickFormatter={(value) => value} // Already formatted
             />
             <YAxis
               tickLine={false}
               axisLine={false}
               tickMargin={8}
               domain={yAxisDomain}
-              tickFormatter={(value) => `${value}${sensorData[0]?.unit || ''}`}
+              ticks={yAxisTicks}
+              tickFormatter={yAxisTickFormatter}
             />
             <ChartTooltip
               cursor={false}
               content={
                 <ChartTooltipContent
                   hideLabel
-                  formatter={(value, name, item) => (
-                    <>
-                      <div className="font-medium">{item.payload.fullDate}</div>
-                      <div className="text-muted-foreground">
-                        {sensorTypeToFriendlyName[sensorType]}: {value}{sensorData[0]?.unit || ''}
-                      </div>
-                    </>
-                  )}
+                  formatter={(value, name, item) => {
+                    let displayValue = value;
+                    if (sensorType === SensorType.WATER_LEVEL) {
+                        displayValue = value === 1 ? "HIGH" : "LOW";
+                    } else {
+                        displayValue = `${value}${sensorData[0]?.unit || ''}`;
+                    }
+                    return (
+                        <>
+                        <div className="font-medium">{item.payload.fullDate}</div>
+                        <div className="text-muted-foreground">
+                            {sensorTypeToFriendlyName[sensorType]}: {displayValue}
+                        </div>
+                        </>
+                    );
+                  }}
                 />
               }
             />
             <Line
               dataKey="value"
-              type="monotone"
+              type={lineType}
               stroke="var(--color-value)"
               strokeWidth={2}
-              dot={false}
+              dot={sensorType === SensorType.WATER_LEVEL ? true : false} // Show dots for step chart for clarity
             />
           </RechartsLineChart>
         </ChartContainer>
