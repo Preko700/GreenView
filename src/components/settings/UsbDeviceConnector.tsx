@@ -295,7 +295,7 @@ export function UsbDeviceConnector() {
         toast({ title: "Dispositivo Desconectado", description: "Conexión serial terminada." });
     }
     addLog("Proceso de desconexión completado.");
-  }, [addLog, toast, setConnectedDeviceHardwareId, setPortInfo, setIsConnected, setIsConnecting]);
+  }, [addLog, toast]);
 
 
   const readLoop = useCallback(async (currentStringReader: ReadableStreamDefaultReader<string>) => {
@@ -392,7 +392,9 @@ export function UsbDeviceConnector() {
       addLog(`Puerto ${portIdentifier} abierto.`);
       keepReadingRef.current = true;
 
-      if (!requestedPort.readable) throw new Error("Puerto serial no tiene stream 'readable'.");
+      if (!requestedPort.readable) {
+        throw new Error("Puerto serial no tiene stream 'readable'.");
+      }
       
       textDecoderStreamRef.current = new TextDecoderStream('utf-8', { fatal: false, ignoreBOM: true });
       
@@ -401,13 +403,17 @@ export function UsbDeviceConnector() {
         .catch(async (pipeError: any) => {
           if (keepReadingRef.current && portRef.current) { 
                addLog(`Error en el 'pipe' del puerto al decodificador: ${pipeError.message}`);
-               if (portRef.current) await disconnectPort(portRef.current, true);
+               if (portRef.current) {
+                 await disconnectPort(portRef.current, true);
+               }
           } else {
                addLog(`Error de 'pipe' (desconexión iniciada): ${pipeError.message}`);
           }
         });
 
-      if (!textDecoderStreamRef.current.readable) throw new Error("TextDecoderStream no tiene stream 'readable'.");
+      if (!textDecoderStreamRef.current.readable) {
+        throw new Error("TextDecoderStream no tiene stream 'readable'.");
+      }
       
       stringReaderRef.current = textDecoderStreamRef.current.readable.getReader();
 
