@@ -10,6 +10,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import type { Device, DeviceSettings } from '@/lib/types';
 
 // Global types for Web Serial API
 declare global {
@@ -30,8 +32,12 @@ declare global {
   interface SerialPortRequestOptions { filters?: Array<{ usbVendorId?: number; usbProductId?: number; }>; }
 }
 
-interface ArduinoSensorPayload {
+interface ArduinoMessageBase {
+  type?: string;
   hardwareId?: string;
+}
+
+interface ArduinoSensorPayload extends ArduinoMessageBase {
   temperature?: number;
   airHumidity?: number;
   soilHumidity?: number;
@@ -40,12 +46,26 @@ interface ArduinoSensorPayload {
   ph?: number;
 }
 
+interface ArduinoHelloMessage extends ArduinoMessageBase {
+  type: "hello_arduino";
+  hardwareId: string;
+}
+
+interface ArduinoAckIntervalMessage extends ArduinoMessageBase {
+  type: "ack_interval_set";
+  new_interval_ms?: number;
+  hardwareId: string;
+}
+
+
 export function UsbDeviceConnector() {
   const { toast } = useToast();
+  const { user: authUser } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [portInfo, setPortInfo] = useState<string | null>(null);
   const [logMessages, setLogMessages] = useState<string[]>([]);
+  const [connectedDeviceHardwareId, setConnectedDeviceHardwareId] = useState<string | null>(null);
   
   const portRef = useRef<SerialPort | null>(null);
   const stringReaderRef = useRef<ReadableStreamDefaultReader<string> | null>(null);
@@ -59,55 +79,135 @@ export function UsbDeviceConnector() {
     setLogMessages(prev => [...prev.slice(-200), `${timestamp}: ${message}`]);
   }, []);
 
-  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload, originalJsonStringForLog: string) => {
+  const sendCommandToArduino = useCallback(async (command: object) => {
+    if (!portRef.current || !portRef.current.writable) {
+      addLog("Error: Puerto no conectado o no escribible para enviar comando.");
+      return;
+    }
+    const writer = portRef.current.writable.getWriter();
     try {
-      if (!jsonData.hardwareId) { 
-        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
-        return;
-      }
-      addLog(`Datos JSON parseados para ${jsonData.hardwareId}: ${originalJsonStringForLog.substring(0,200)}`);
-
-      const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: jsonData.hardwareId };
-      if (jsonData.temperature !== undefined) apiPayload.temperature = jsonData.temperature;
-      if (jsonData.airHumidity !== undefined) apiPayload.airHumidity = jsonData.airHumidity;
-      if (jsonData.soilHumidity !== undefined) apiPayload.soilHumidity = jsonData.soilHumidity;
-      if (jsonData.lightLevel !== undefined) apiPayload.lightLevel = jsonData.lightLevel;
-      if (jsonData.waterLevel !== undefined) apiPayload.waterLevel = jsonData.waterLevel;
-      if (jsonData.ph !== undefined) apiPayload.ph = jsonData.ph;
-      
-      addLog(`[ApiClient] Enviando a /api/ingest-sensor-data: ${JSON.stringify(apiPayload).substring(0,200)}`);
-
-      const response = await fetch('/api/ingest-sensor-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(apiPayload),
-      });
-
-      const resultText = await response.text(); // Leer respuesta como texto primero
-      let resultJson;
-      try {
-        resultJson = JSON.parse(resultText); // Intentar parsear como JSON
-      } catch(e) {
-        addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
-        throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
-      }
-      
-      if (!response.ok) {
-        let errorMsg = resultJson.message || `Error del servidor (Status: ${response.status})`;
-        if (resultJson.error) { // Error específico del backend (ej. de DB)
-            errorMsg += `. Detalle del Servidor: ${resultJson.error}`;
-        } else if (resultJson.errors && Array.isArray(resultJson.errors)){ // Errores de validación Zod
-             errorMsg += `. Detalles: ${resultJson.errors.join(', ')}`;
-        }
-        addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(resultJson).substring(0,500)}`);
-        throw new Error(errorMsg);
-      }
-      addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${resultJson.message}`);
-
+      const commandJson = JSON.stringify(command);
+      addLog(`Enviando comando al Arduino: ${commandJson}`);
+      await writer.write(new TextEncoder().encode(commandJson + '\n'));
     } catch (error: any) {
-      addLog(`Error procesando/enviando datos JSON: ${error.message}. JSON problemático: "${originalJsonStringForLog.substring(0,200)}"`);
+      addLog(`Error enviando comando al Arduino: ${error.message}`);
+    } finally {
+      if (writer) {
+        writer.releaseLock();
+      }
     }
   }, [addLog]);
+
+  const fetchAndSetDeviceInterval = useCallback(async (hwId: string) => {
+    if (!authUser) {
+      addLog("Usuario no autenticado. No se puede obtener la configuración del dispositivo.");
+      return;
+    }
+    addLog(`Dispositivo Arduino conectado con hardwareId: ${hwId}. Obteniendo configuración...`);
+    try {
+      // 1. Obtener el serialNumber del dispositivo usando el hardwareIdentifier
+      const deviceDetailsRes = await fetch(`/api/devices?hardwareIdentifier=${hwId}&userId=${authUser.id}`);
+      if (!deviceDetailsRes.ok) {
+        const errorData = await deviceDetailsRes.json().catch(() => ({message: "Error desconocido obteniendo detalles del dispositivo."}));
+        throw new Error(`Error obteniendo detalles del dispositivo (${deviceDetailsRes.status}): ${errorData.message || 'No se pudo encontrar el dispositivo por hardwareId.'}`);
+      }
+      const device: Device = await deviceDetailsRes.json();
+      addLog(`Dispositivo encontrado en DB: ${device.name} (SN: ${device.serialNumber})`);
+
+      // 2. Obtener la configuración del dispositivo usando el serialNumber
+      const settingsRes = await fetch(`/api/device-settings/${device.serialNumber}?userId=${authUser.id}`);
+      if (!settingsRes.ok) {
+        const errorData = await settingsRes.json().catch(() => ({message: "Error desconocido obteniendo configuración del dispositivo."}));
+        throw new Error(`Error obteniendo configuración del dispositivo (${settingsRes.status}): ${errorData.message}`);
+      }
+      const settings: DeviceSettings = await settingsRes.json();
+      addLog(`Configuración obtenida: Intervalo de Medición = ${settings.measurementInterval} minutos.`);
+
+      const intervalMs = settings.measurementInterval * 60 * 1000;
+      await sendCommandToArduino({ command: "set_interval", value_ms: intervalMs });
+
+    } catch (error: any) {
+      addLog(`Error al obtener/establecer el intervalo del dispositivo: ${error.message}`);
+      toast({ title: "Error de Configuración del Dispositivo", description: error.message, variant: "destructive" });
+    }
+  }, [authUser, addLog, sendCommandToArduino, toast]);
+
+
+  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload | ArduinoHelloMessage | ArduinoAckIntervalMessage, originalJsonStringForLog: string) => {
+    if (!jsonData.hardwareId) { 
+        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
+        return;
+    }
+
+    // Manejar tipos de mensaje específicos
+    if (jsonData.type === "hello_arduino") {
+        const helloMsg = jsonData as ArduinoHelloMessage;
+        addLog(`Mensaje 'hello_arduino' recibido de ${helloMsg.hardwareId}`);
+        setConnectedDeviceHardwareId(helloMsg.hardwareId); // Guardar el HWID
+        // Ahora, obtener y enviar el intervalo para este dispositivo
+        await fetchAndSetDeviceInterval(helloMsg.hardwareId);
+        return; 
+    }
+
+    if (jsonData.type === "ack_interval_set") {
+        const ackMsg = jsonData as ArduinoAckIntervalMessage;
+        addLog(`ACK de intervalo recibido de ${ackMsg.hardwareId}. Nuevo intervalo: ${ackMsg.new_interval_ms || 'No especificado'} ms`);
+        return;
+    }
+    
+    // Si no es un mensaje de tipo conocido pero tiene hardwareId, asumir que son datos de sensores
+    if (jsonData.hardwareId && !jsonData.type) {
+        addLog(`Datos de sensores recibidos de ${jsonData.hardwareId}: ${originalJsonStringForLog.substring(0,200)}`);
+        const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: jsonData.hardwareId };
+        let sensorDataFound = false;
+        if (jsonData.temperature !== undefined) { apiPayload.temperature = jsonData.temperature; sensorDataFound = true; }
+        if (jsonData.airHumidity !== undefined) { apiPayload.airHumidity = jsonData.airHumidity; sensorDataFound = true; }
+        if (jsonData.soilHumidity !== undefined) { apiPayload.soilHumidity = jsonData.soilHumidity; sensorDataFound = true; }
+        if (jsonData.lightLevel !== undefined) { apiPayload.lightLevel = jsonData.lightLevel; sensorDataFound = true; }
+        if (jsonData.waterLevel !== undefined) { apiPayload.waterLevel = jsonData.waterLevel; sensorDataFound = true; }
+        if (jsonData.ph !== undefined) { apiPayload.ph = jsonData.ph; sensorDataFound = true; }
+
+        if (!sensorDataFound) {
+            addLog(`JSON de ${jsonData.hardwareId} no contiene datos de sensores reconocibles. Descartando para API ingest.`);
+            return;
+        }
+      
+        addLog(`[ApiClient] Enviando a /api/ingest-sensor-data: ${JSON.stringify(apiPayload).substring(0,200)}`);
+        try {
+            const response = await fetch('/api/ingest-sensor-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(apiPayload),
+            });
+
+            const resultText = await response.text(); 
+            let resultJson;
+            try {
+                resultJson = JSON.parse(resultText); 
+            } catch(e) {
+                addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
+                throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
+            }
+            
+            if (!response.ok) {
+                let errorMsg = resultJson.message || `Error del servidor (Status: ${response.status})`;
+                if (resultJson.error) { 
+                    errorMsg += `. Detalle del Servidor: ${resultJson.error}`;
+                } else if (resultJson.errors && Array.isArray(resultJson.errors)){ 
+                    errorMsg += `. Detalles: ${resultJson.errors.join(', ')}`;
+                }
+                addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(resultJson).substring(0,500)}`);
+                throw new Error(errorMsg);
+            }
+            addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${resultJson.message}`);
+        } catch (error: any) {
+            addLog(`Error procesando/enviando datos de sensores JSON: ${error.message}. JSON problemático: "${originalJsonStringForLog.substring(0,200)}"`);
+        }
+    } else if(jsonData.hardwareId && jsonData.type) {
+        addLog(`Mensaje JSON de tipo desconocido '${jsonData.type}' recibido de ${jsonData.hardwareId}. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
+    }
+
+  }, [addLog, fetchAndSetDeviceInterval]);
   
   const disconnectPort = useCallback(async (portToClose: SerialPort | null, showToast: boolean = true) => {
     if (!portToClose) {
@@ -121,6 +221,7 @@ export function UsbDeviceConnector() {
     addLog(`Iniciando desconexión del puerto ${portIdentifier}...`);
     
     keepReadingRef.current = false;
+    setConnectedDeviceHardwareId(null); // Limpiar el HWID al desconectar
 
     if (stringReaderRef.current) {
       try {
@@ -207,10 +308,13 @@ export function UsbDeviceConnector() {
           break;
         }
         
-        addLog(`DEBUG: Chunk RAW (tipo: ${typeof value}): [${value ? String(value).substring(0, 70).replace(/\r/g, '\\r').replace(/\n/g, '\\n') : 'undefined o null'}] (longitud total del chunk: ${value?.length ?? 0})`);
-        
-        lineBuffer += (typeof value === 'string' ? value : ''); // Asegurar que solo se añaden strings
-        addLog(`DEBUG: lineBuffer después de añadir chunk (primeros 200 chars): [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+        if (value && typeof value === 'string') {
+            lineBuffer += value;
+            addLog(`DEBUG: Chunk RAW (tipo: string): [${String(value).substring(0, 70).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}] (longitud total del chunk: ${value.length})`);
+            addLog(`DEBUG: lineBuffer después de añadir chunk (primeros 200 chars): [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+        } else {
+             addLog(`DEBUG: Chunk recibido no es string o es vacío/nulo. Tipo: ${typeof value}. Valor: ${value}`);
+        }
         
         let newlineIndex;
         while ((newlineIndex = lineBuffer.indexOf('\n')) >= 0) {
@@ -218,7 +322,6 @@ export function UsbDeviceConnector() {
           lineBuffer = lineBuffer.substring(newlineIndex + 1);    
 
           const trimmedLineOriginal = rawLine.trim();
-          // Regex para eliminar solo caracteres de control excepto tab, CR, LF. Preserva underscores.
           const sanitizedLine = trimmedLineOriginal.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
 
@@ -317,6 +420,8 @@ export function UsbDeviceConnector() {
       addLog(`Conectado a puerto: ${portIdentifier}`);
       toast({ title: "Dispositivo Conectado", description: `Conexión serial establecida con ${portIdentifier}.` });
 
+      // El mensaje "hello_arduino" del Arduino debería activar fetchAndSetDeviceInterval
+      // a través de processReceivedData.
       readLoop(stringReaderRef.current);
 
     } catch (error: any) {
@@ -339,10 +444,11 @@ export function UsbDeviceConnector() {
         try { await requestedPort.close(); } catch(e) { /* ignorar */ }
       }
       setPortInfo(null);
+      setConnectedDeviceHardwareId(null);
       setIsConnected(false);
       setIsConnecting(false); 
     }
-  }, [addLog, toast, isConnecting, disconnectPort, readLoop, processReceivedData]); 
+  }, [addLog, toast, isConnecting, disconnectPort, readLoop, processReceivedData, fetchAndSetDeviceInterval]); 
 
   useEffect(() => {
     const portInstanceAtEffectTime = portRef.current; 
@@ -362,14 +468,14 @@ export function UsbDeviceConnector() {
           Conectar Dispositivo USB (Experimental)
         </CardTitle>
         <CardDescription>
-          Conecta tu Arduino para enviar datos de sensores. Asegúrate que envíe JSON por línea con `hardwareId`.
-          Ej: { "`{\"hardwareId\": \"TU_HW_ID\", \"temperature\": 25.5}`" }
+          Conecta tu Arduino para enviar datos de sensores y recibir configuración.
+          El Arduino debe enviar `{"type":"hello_arduino", "hardwareId":"SU_HW_ID"}` al conectar.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center space-x-4">
           {!isConnected ? (
-            <Button onClick={handleConnect} disabled={isConnecting}>
+            <Button onClick={handleConnect} disabled={isConnecting || !authUser}>
               {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
               Conectar Dispositivo
             </Button>
@@ -381,11 +487,13 @@ export function UsbDeviceConnector() {
           )}
           <Badge variant={isConnected ? "default" : "secondary"} className={cn("transition-colors", isConnected && "bg-green-600 hover:bg-green-700 text-white")}>
             {isConnecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : isConnected ? <CheckCircle className="mr-1 h-4 w-4" /> : <XCircle className="mr-1 h-4 w-4" />}
-            {isConnecting ? "Conectando..." : isConnected ? `Conectado a ${portInfo || 'dispositivo'}` : "Desconectado"}
+            {isConnecting ? "Conectando..." : isConnected ? `Conectado a ${connectedDeviceHardwareId || portInfo || 'dispositivo'}` : "Desconectado"}
           </Badge>
         </div>
+        {!authUser && <p className="text-sm text-destructive">Debes iniciar sesión para conectar un dispositivo.</p>}
         <p className="text-sm text-muted-foreground">
             El `hardwareId` enviado por tu dispositivo USB debe coincidir con el `Hardware Identifier` de un dispositivo registrado en GreenView.
+            El intervalo de medición se configurará automáticamente al conectar.
         </p>
 
         <Label htmlFor="serial-log">Log de Conexión Serial:</Label>
@@ -399,6 +507,4 @@ export function UsbDeviceConnector() {
     </Card>
   );
 }
-    
-
     
