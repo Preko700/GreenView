@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import type { Device, DeviceSettings } from '@/lib/types';
+import type { Device, DeviceSettings } from '@/lib/types'; // TemperatureUnit is already in DeviceSettings
+// import { TemperatureUnit } from '@/lib/types'; // No longer needed directly here
 
 declare global {
   interface SerialPortInfo {
@@ -73,6 +74,40 @@ interface ArduinoAckIntervalMessage extends ArduinoMessageBase {
   hardwareId: string;
 }
 
+interface ArduinoAckPhotoIntervalMessage extends ArduinoMessageBase {
+  type: "ack_photo_interval_set";
+  new_interval_hours?: number;
+  hardwareId: string;
+}
+
+interface ArduinoAckTempUnitMessage extends ArduinoMessageBase {
+  type: "ack_temp_unit_set";
+  new_unit?: string; // "CELSIUS" o "FAHRENHEIT"
+  hardwareId: string;
+}
+
+interface ArduinoAckAutoIrrigationMessage extends ArduinoMessageBase {
+  type: "ack_auto_irrigation_set";
+  enabled?: boolean;
+  threshold?: number;
+  hardwareId: string;
+}
+
+interface ArduinoAckAutoVentilationMessage extends ArduinoMessageBase {
+  type: "ack_auto_ventilation_set";
+  enabled?: boolean;
+  temp_on?: number;
+  temp_off?: number;
+  hardwareId: string;
+}
+
+type AllArduinoAckMessages = ArduinoAckIntervalMessage | 
+                             ArduinoAckPhotoIntervalMessage | 
+                             ArduinoAckTempUnitMessage | 
+                             ArduinoAckAutoIrrigationMessage | 
+                             ArduinoAckAutoVentilationMessage;
+
+
 interface UsbDeviceConnectorProps {
   settingsLastUpdatedTimestamp: number | null;
 }
@@ -122,24 +157,20 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
     }
   }, [addLog]);
 
-  const fetchAndSetDeviceInterval = useCallback(async (hwId: string) => {
+  const fetchAndSyncDeviceConfiguration = useCallback(async (hwId: string) => {
     if (!authUser) {
       addLog("Usuario no autenticado. No se puede obtener la configuración del dispositivo.");
       return;
     }
-    addLog(`Dispositivo Arduino conectado con hardwareId: ${hwId}. Obteniendo configuración...`);
+    addLog(`Sincronizando configuración completa para hardwareId: ${hwId}...`);
     setConnectedDeviceHardwareId(hwId); 
     try {
       const deviceDetailsRes = await fetch(`/api/devices?hardwareIdentifier=${hwId}&userId=${authUser.id}`, { cache: 'no-store' });
       if (!deviceDetailsRes.ok) {
         const errorText = await deviceDetailsRes.text();
         let errorMessage = `Error obteniendo detalles del dispositivo (${deviceDetailsRes.status}).`;
-        try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.message || errorMessage;
-        } catch(e){
-            errorMessage = `${errorMessage} Respuesta no JSON: ${errorText.substring(0,100)}`;
-        }
+        try { const errorData = JSON.parse(errorText); errorMessage = errorData.message || errorMessage; }
+        catch(e){ errorMessage = `${errorMessage} Respuesta no JSON: ${errorText.substring(0,100)}`; }
         throw new Error(errorMessage);
       }
       const device: Device = await deviceDetailsRes.json();
@@ -149,27 +180,51 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
       if (!settingsRes.ok) {
         const errorText = await settingsRes.text();
         let errorMessage = `Error obteniendo configuración del dispositivo (${settingsRes.status}).`;
-         try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.message || errorMessage;
-        } catch(e){
-            errorMessage = `${errorMessage} Respuesta no JSON: ${errorText.substring(0,100)}`;
-        }
+         try { const errorData = JSON.parse(errorText); errorMessage = errorData.message || errorMessage; }
+        catch(e){ errorMessage = `${errorMessage} Respuesta no JSON: ${errorText.substring(0,100)}`; }
         throw new Error(errorMessage);
       }
       const settings: DeviceSettings = await settingsRes.json();
-      addLog(`Configuración obtenida: Intervalo de Medición = ${settings.measurementInterval} minutos.`);
+      addLog(`Configuración completa obtenida: ${JSON.stringify(settings).substring(0,300)}...`);
 
+      // 1. Intervalo de Medición
       const intervalMs = settings.measurementInterval * 60 * 1000;
       await sendCommandToArduino({ command: "set_interval", value_ms: intervalMs });
+      addLog(`Comando 'set_interval' enviado con ${intervalMs}ms (=${settings.measurementInterval} min).`);
+
+      // 2. Intervalo de Captura de Fotos
+      await sendCommandToArduino({ command: "set_photo_interval", value_hours: settings.photoCaptureInterval });
+      addLog(`Comando 'set_photo_interval' enviado con ${settings.photoCaptureInterval} horas.`);
+
+      // 3. Unidad de Temperatura
+      await sendCommandToArduino({ command: "set_temp_unit", unit: settings.temperatureUnit });
+      addLog(`Comando 'set_temp_unit' enviado con ${settings.temperatureUnit}.`);
+
+      // 4. Auto Riego
+      await sendCommandToArduino({ 
+        command: "set_auto_irrigation", 
+        enabled: settings.autoIrrigation, 
+        threshold: settings.irrigationThreshold 
+      });
+      addLog(`Comando 'set_auto_irrigation' enviado: enabled=${settings.autoIrrigation}, threshold=${settings.irrigationThreshold}%.`);
+      
+      // 5. Auto Ventilación
+      await sendCommandToArduino({ 
+        command: "set_auto_ventilation", 
+        enabled: settings.autoVentilation, 
+        temp_on: settings.temperatureThreshold, 
+        temp_off: settings.temperatureFanOffThreshold 
+      });
+      addLog(`Comando 'set_auto_ventilation' enviado: enabled=${settings.autoVentilation}, temp_on=${settings.temperatureThreshold}, temp_off=${settings.temperatureFanOffThreshold}.`);
 
     } catch (error: any) {
-      addLog(`Error al obtener/establecer el intervalo del dispositivo: ${error.message}`);
-      toast({ title: "Error de Configuración del Dispositivo", description: error.message, variant: "destructive" });
+      addLog(`Error durante la sincronización de configuración completa: ${error.message}`);
+      toast({ title: "Error Sincronizando Configuración", description: error.message, variant: "destructive" });
     }
-  }, [authUser, addLog, sendCommandToArduino, toast]);
+  }, [authUser, addLog, sendCommandToArduino, toast, setConnectedDeviceHardwareId]);
 
-  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload | ArduinoHelloMessage | ArduinoAckIntervalMessage, originalJsonStringForLog: string) => {
+
+  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload | ArduinoHelloMessage | AllArduinoAckMessages , originalJsonStringForLog: string) => {
     addLog(`Datos JSON parseados para ${jsonData.hardwareId || 'ID_DESCONOCIDO'}: ${JSON.stringify(jsonData).substring(0, 200)}`);
 
     if (!jsonData.hardwareId) {
@@ -177,71 +232,91 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
         return;
     }
 
-    if (jsonData.type === "hello_arduino") {
-        const helloMsg = jsonData as ArduinoHelloMessage;
-        addLog(`Mensaje 'hello_arduino' recibido de ${helloMsg.hardwareId}`);
-        await fetchAndSetDeviceInterval(helloMsg.hardwareId);
-        return;
-    }
-
-    if (jsonData.type === "ack_interval_set") {
-        const ackMsg = jsonData as ArduinoAckIntervalMessage;
-        addLog(`ACK de intervalo recibido de ${ackMsg.hardwareId}. Nuevo intervalo: ${ackMsg.new_interval_ms || 'No especificado'} ms`);
-        return;
-    }
-
-    if (jsonData.hardwareId && !jsonData.type) { 
-        addLog(`Datos de sensores recibidos de ${jsonData.hardwareId}: ${originalJsonStringForLog.substring(0,200)}`);
-        const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: jsonData.hardwareId };
-        let sensorDataFound = false;
-        if (jsonData.temperature !== undefined) { apiPayload.temperature = jsonData.temperature; sensorDataFound = true; }
-        if (jsonData.airHumidity !== undefined) { apiPayload.airHumidity = jsonData.airHumidity; sensorDataFound = true; }
-        if (jsonData.soilHumidity !== undefined) { apiPayload.soilHumidity = jsonData.soilHumidity; sensorDataFound = true; }
-        if (jsonData.lightLevel !== undefined) { apiPayload.lightLevel = jsonData.lightLevel; sensorDataFound = true; }
-        if (jsonData.waterLevel !== undefined) { apiPayload.waterLevel = jsonData.waterLevel; sensorDataFound = true; }
-        if (jsonData.ph !== undefined) { apiPayload.ph = jsonData.ph; sensorDataFound = true; }
-
-        if (!sensorDataFound) {
-            addLog(`JSON de ${jsonData.hardwareId} no contiene datos de sensores reconocibles. Descartando para API ingest.`);
+    switch(jsonData.type) {
+        case "hello_arduino":
+            const helloMsg = jsonData as ArduinoHelloMessage;
+            addLog(`Mensaje 'hello_arduino' recibido de ${helloMsg.hardwareId}`);
+            await fetchAndSyncDeviceConfiguration(helloMsg.hardwareId);
             return;
-        }
 
-        addLog(`[ApiClient] Enviando a /api/ingest-sensor-data: ${JSON.stringify(apiPayload).substring(0,200)}`);
-        try {
-            const response = await fetch('/api/ingest-sensor-data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(apiPayload),
-            });
-            const resultText = await response.text();
-            let resultJson;
-            try {
-                resultJson = JSON.parse(resultText);
-            } catch(e) {
-                addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
-                if (!response.ok) {
-                  throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
+        case "ack_interval_set":
+            const ackIntervalMsg = jsonData as ArduinoAckIntervalMessage;
+            addLog(`ACK de intervalo recibido de ${ackIntervalMsg.hardwareId}. Nuevo intervalo: ${ackIntervalMsg.new_interval_ms || 'No especificado'} ms`);
+            return;
+
+        case "ack_photo_interval_set":
+            const ackPhotoMsg = jsonData as ArduinoAckPhotoIntervalMessage;
+            addLog(`ACK de intervalo de foto recibido de ${ackPhotoMsg.hardwareId}. Nuevo intervalo: ${ackPhotoMsg.new_interval_hours || 'No especificado'} horas`);
+            return;
+        
+        case "ack_temp_unit_set":
+            const ackTempUnitMsg = jsonData as ArduinoAckTempUnitMessage;
+            addLog(`ACK de unidad de temperatura recibido de ${ackTempUnitMsg.hardwareId}. Nueva unidad: ${ackTempUnitMsg.new_unit || 'No especificada'}`);
+            return;
+
+        case "ack_auto_irrigation_set":
+            const ackAutoIrrigationMsg = jsonData as ArduinoAckAutoIrrigationMessage;
+            addLog(`ACK de auto-riego recibido de ${ackAutoIrrigationMsg.hardwareId}. Enabled: ${ackAutoIrrigationMsg.enabled}, Threshold: ${ackAutoIrrigationMsg.threshold}`);
+            return;
+
+        case "ack_auto_ventilation_set":
+            const ackAutoVentMsg = jsonData as ArduinoAckAutoVentilationMessage;
+            addLog(`ACK de auto-ventilación recibido de ${ackAutoVentMsg.hardwareId}. Enabled: ${ackAutoVentMsg.enabled}, TempOn: ${ackAutoVentMsg.temp_on}, TempOff: ${ackAutoVentMsg.temp_off}`);
+            return;
+        
+        default: 
+            if (jsonData.hardwareId && !jsonData.type) { 
+                addLog(`Datos de sensores recibidos de ${jsonData.hardwareId}: ${originalJsonStringForLog.substring(0,200)}`);
+                const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: jsonData.hardwareId };
+                let sensorDataFound = false;
+                const typedJsonData = jsonData as ArduinoSensorPayload; 
+                if (typedJsonData.temperature !== undefined) { apiPayload.temperature = typedJsonData.temperature; sensorDataFound = true; }
+                if (typedJsonData.airHumidity !== undefined) { apiPayload.airHumidity = typedJsonData.airHumidity; sensorDataFound = true; }
+                if (typedJsonData.soilHumidity !== undefined) { apiPayload.soilHumidity = typedJsonData.soilHumidity; sensorDataFound = true; }
+                if (typedJsonData.lightLevel !== undefined) { apiPayload.lightLevel = typedJsonData.lightLevel; sensorDataFound = true; }
+                if (typedJsonData.waterLevel !== undefined) { apiPayload.waterLevel = typedJsonData.waterLevel; sensorDataFound = true; }
+                if (typedJsonData.ph !== undefined) { apiPayload.ph = typedJsonData.ph; sensorDataFound = true; }
+
+                if (!sensorDataFound) {
+                    addLog(`JSON de ${jsonData.hardwareId} no contiene datos de sensores reconocibles. Descartando para API ingest.`);
+                    return;
                 }
-                return;
-            }
 
-            if (!response.ok) {
-                let errorMsg = resultJson.message || `Error del servidor (Status: ${response.status})`;
-                if (resultJson.error) { errorMsg += `. Detalle del Servidor: ${resultJson.error}`; }
-                else if (resultJson.errors && Array.isArray(resultJson.errors)){ errorMsg += `. Detalles: ${resultJson.errors.map((err: any) => typeof err === 'string' ? err : JSON.stringify(err)).join(', ')}`; }
-                else if (typeof resultJson.errors === 'object' && resultJson.errors !== null) { errorMsg += `. Detalles: ${JSON.stringify(resultJson.errors)}`;}
-                addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(resultJson).substring(0,500)}`);
-                throw new Error(errorMsg);
+                addLog(`[ApiClient] Enviando a /api/ingest-sensor-data: ${JSON.stringify(apiPayload).substring(0,200)}`);
+                try {
+                    const response = await fetch('/api/ingest-sensor-data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(apiPayload),
+                    });
+                    const resultText = await response.text();
+                    let resultJson;
+                    try { resultJson = JSON.parse(resultText); }
+                    catch(e) {
+                        addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
+                        if (!response.ok) { throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`); }
+                        return;
+                    }
+
+                    if (!response.ok) {
+                        let errorMsg = resultJson.message || `Error del servidor (Status: ${response.status})`;
+                        if (resultJson.error) { errorMsg += `. Detalle del Servidor: ${resultJson.error}`; }
+                        else if (resultJson.errors && Array.isArray(resultJson.errors)){ errorMsg += `. Detalles: ${resultJson.errors.map((err: any) => typeof err === 'string' ? err : JSON.stringify(err)).join(', ')}`; }
+                        else if (typeof resultJson.errors === 'object' && resultJson.errors !== null) { errorMsg += `. Detalles: ${JSON.stringify(resultJson.errors)}`;}
+                        addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(resultJson).substring(0,500)}`);
+                        throw new Error(errorMsg);
+                    }
+                    addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${resultJson.message}`);
+                } catch (error: any) {
+                    addLog(`Error procesando/enviando datos de sensores JSON: ${error.message}. JSON problemático: "${originalJsonStringForLog.substring(0,200)}"`);
+                    toast({ title: "Error enviando datos", description: `Fallo al enviar datos de ${jsonData.hardwareId}: ${error.message}`, variant: "destructive"});
+                }
+            } else if(jsonData.hardwareId && jsonData.type) { 
+                 addLog(`Mensaje JSON de tipo desconocido '${jsonData.type}' recibido de ${jsonData.hardwareId}. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
             }
-            addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${resultJson.message}`);
-        } catch (error: any) {
-            addLog(`Error procesando/enviando datos de sensores JSON: ${error.message}. JSON problemático: "${originalJsonStringForLog.substring(0,200)}"`);
-            toast({ title: "Error enviando datos", description: `Fallo al enviar datos de ${jsonData.hardwareId}: ${error.message}`, variant: "destructive"});
-        }
-    } else if(jsonData.hardwareId && jsonData.type) {
-        addLog(`Mensaje JSON de tipo desconocido '${jsonData.type}' recibido de ${jsonData.hardwareId}. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
     }
-  }, [addLog, fetchAndSetDeviceInterval, toast]);
+  }, [addLog, fetchAndSyncDeviceConfiguration, toast]);
+
 
   const disconnectPort = useCallback(async (portToClose: SerialPort | null, showToast: boolean = true) => {
     if (!portToClose) {
@@ -498,18 +573,17 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
     addLog(
       `useEffect[settingsTimestamp] triggered. Timestamp: ${settingsLastUpdatedTimestamp}, Connected: ${isConnected}, DeviceID: ${connectedDeviceHardwareId}`
     );
-    // Solo actuar si settingsLastUpdatedTimestamp es un número (no null y no undefined)
     if (typeof settingsLastUpdatedTimestamp === 'number' && isConnected && connectedDeviceHardwareId) {
       addLog(
-        `SYNC: Configuración del dispositivo CAMBIÓ (ts: ${settingsLastUpdatedTimestamp}). Re-aplicando intervalo para ${connectedDeviceHardwareId}...`
+        `SYNC: Configuración del dispositivo CAMBIÓ (ts: ${settingsLastUpdatedTimestamp}). Re-aplicando configuración completa para ${connectedDeviceHardwareId}...`
       );
-      fetchAndSetDeviceInterval(connectedDeviceHardwareId);
+      fetchAndSyncDeviceConfiguration(connectedDeviceHardwareId);
     }
   }, [
     settingsLastUpdatedTimestamp,
     isConnected,
     connectedDeviceHardwareId,
-    fetchAndSetDeviceInterval,
+    fetchAndSyncDeviceConfiguration,
     addLog,
   ]);
 
@@ -521,7 +595,7 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
           Conectar Dispositivo USB (Experimental)
         </CardTitle>
         <CardDescription>
-          Conecta tu Arduino para enviar datos de sensores y recibir la configuración del intervalo de medición.
+          Conecta tu Arduino para sincronizar automáticamente su configuración (intervalos, umbrales, etc.) y enviar datos de sensores.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
