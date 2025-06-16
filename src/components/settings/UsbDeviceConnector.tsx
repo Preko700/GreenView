@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
-// Declaraciones de tipo global para Web Serial API
+// Tipos globales para Web Serial API (asegúrate que estén definidos)
 declare global {
   interface SerialPort extends EventTarget {
     readable: ReadableStream<Uint8Array>;
@@ -19,42 +19,22 @@ declare global {
     open(options: SerialOptions): Promise<void>;
     close(): Promise<void>;
     getInfo(): { usbVendorId?: number, usbProductId?: number };
-    forget?(): Promise<void>;
+    forget?(): Promise<void>; // Optional forget method
   }
-
-  interface SerialOptions {
-    baudRate: number;
-    dataBits?: 7 | 8;
-    stopBits?: 1 | 2;
-    parity?: "none" | "even" | "odd";
-    bufferSize?: number;
-    flowControl?: "none" | "hardware";
-  }
-
-  interface Navigator {
-    serial: {
-      requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>;
-      getPorts(): Promise<SerialPort[]>;
-    };
-  }
-  interface SerialPortRequestOptions {
-    filters?: Array<{
-      usbVendorId?: number;
-      usbProductId?: number;
-    }>;
-  }
+  interface SerialOptions { baudRate: number; dataBits?: 7 | 8; stopBits?: 1 | 2; parity?: "none" | "even" | "odd"; bufferSize?: number; flowControl?: "none" | "hardware"; }
+  interface Navigator { serial: { requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>; getPorts(): Promise<SerialPort[]>; }; }
+  interface SerialPortRequestOptions { filters?: Array<{ usbVendorId?: number; usbProductId?: number; }>; }
 }
 
 interface ArduinoSensorPayload {
-  hardwareId?: string; // Cambiado de 'id' a 'hardwareId'
+  hardwareId?: string;
   temperature?: number;
   airHumidity?: number;
   soilHumidity?: number;
   lightLevel?: number;
-  waterLevel?: number; // Para 'sensor_u'
-  // Otros sensores podrían añadirse aquí
+  waterLevel?: number; // 0 for LOW, 1 for HIGH
+  ph?: number;
 }
-
 
 export function UsbDeviceConnector() {
   const { toast } = useToast();
@@ -69,7 +49,6 @@ export function UsbDeviceConnector() {
   const pipePromiseRef = useRef<Promise<void> | null>(null);
   const keepReadingRef = useRef(true);
 
-
   const addLog = useCallback((message: string) => {
     console.log('[UsbDeviceConnector]', message);
     setLogMessages(prev => [...prev.slice(-100), `${new Date().toLocaleTimeString()}: ${message}`]);
@@ -78,8 +57,7 @@ export function UsbDeviceConnector() {
   const processReceivedData = useCallback(async (jsonDataString: string) => {
     try {
       const data: ArduinoSensorPayload = JSON.parse(jsonDataString);
-      
-      const effectiveHardwareId = data.hardwareId; // Ahora esperamos 'hardwareId'
+      const effectiveHardwareId = data.hardwareId;
 
       if (!effectiveHardwareId) { 
         addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${jsonDataString}`);
@@ -87,20 +65,16 @@ export function UsbDeviceConnector() {
       }
       addLog(`Datos JSON parseados para ${effectiveHardwareId}: ${jsonDataString}`);
 
-      const apiPayload: Partial<ArduinoSensorPayload> = { // Usar Partial porque no todos los campos son obligatorios
-        hardwareId: effectiveHardwareId,
-      };
+      const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: effectiveHardwareId };
       
       if (data.temperature !== undefined) apiPayload.temperature = data.temperature;
       if (data.airHumidity !== undefined) apiPayload.airHumidity = data.airHumidity;
       if (data.soilHumidity !== undefined) apiPayload.soilHumidity = data.soilHumidity;
       if (data.lightLevel !== undefined) apiPayload.lightLevel = data.lightLevel;
+      if (data.waterLevel !== undefined) apiPayload.waterLevel = data.waterLevel; // 0 or 1
+      if (data.ph !== undefined) apiPayload.ph = data.ph;
       
-      // Lógica para 'sensor_u' (si aún la usas en Arduino) o 'waterLevel'
-      if (data.waterLevel !== undefined) { // Priorizar 'waterLevel' si existe
-        apiPayload.waterLevel = data.waterLevel;
-      }
-
+      console.log('[UsbDeviceConnector] Enviando a /api/ingest-sensor-data:', apiPayload); // Log para ver qué se envía
 
       const response = await fetch('/api/ingest-sensor-data', {
         method: 'POST',
@@ -119,67 +93,75 @@ export function UsbDeviceConnector() {
     }
   }, [addLog]);
 
-  
   const disconnectPort = useCallback(async (portToClose: SerialPort | null, showToast: boolean = true) => {
     if (!portToClose) {
       addLog("disconnectPort llamado sin puerto válido.");
       return;
     }
     addLog(`Iniciando desconexión del puerto ${JSON.stringify(portToClose.getInfo())}...`);
-    keepReadingRef.current = false; 
+    keepReadingRef.current = false;
 
-    const currentStringReader = stringReaderRef.current;
-    if (currentStringReader) {
-      stringReaderRef.current = null;
+    if (stringReaderRef.current) {
       try {
-        await currentStringReader.cancel("Desconexión por el usuario");
+        await stringReaderRef.current.cancel("Desconexión por el usuario");
         addLog("Lector de TextDecoderStream cancelado.");
       } catch (e: any) {
-        addLog(`Error manejando TextDecoderStream: ${e.message}`);
+        addLog(`Error cancelando lector de TextDecoderStream (puede ser normal si ya estaba cerrado/cancelado): ${e.message}`);
+      } finally {
+        stringReaderRef.current = null;
       }
     }
+
+    if (textDecoderStreamRef.current?.writable && !textDecoderStreamRef.current.writable.locked) {
+        try {
+            await textDecoderStreamRef.current.writable.abort("Aborting TextDecoderStream writable on disconnect");
+            addLog("TextDecoderStream.writable abortado.");
+        } catch (e: any) {
+            addLog(`Error abortando TextDecoderStream.writable (puede ser normal si ya estaba cerrado/abortado): ${e.message}`);
+        }
+    }
     
-    const currentPipePromise = pipePromiseRef.current;
-    if (currentPipePromise) {
-        pipePromiseRef.current = null;
+    if (pipePromiseRef.current) {
         addLog("Esperando que el 'pipe' del puerto al decodificador se complete o falle...");
         try {
-            await currentPipePromise; 
-            addLog("'Pipe' resuelto.");
+            await pipePromiseRef.current; 
+            addLog("'Pipe' resuelto o falló como se esperaba durante la desconexión.");
         } catch (e: any) {
-            addLog(`Error capturado del 'pipePromise' durante desconexión: ${e.message}`);
+            addLog(`Error capturado del 'pipePromise' durante desconexión (puede ser normal): ${e.message}`);
+        } finally {
+            pipePromiseRef.current = null;
         }
     }
     
-    // Streams del puerto
-    if (portToClose.readable && portToClose.readable.locked) {
-        addLog("SerialPort.readable sigue bloqueado. Intentando cancelarlo...");
+    if (portToClose.readable) {
         try {
-            await portToClose.readable.cancel("Cancelando SerialPort.readable en desconexión");
-            addLog("SerialPort.readable cancelado.");
+            // Si readable sigue bloqueado, es probable que el pipeTo aún lo tenga.
+            // Cancelar el reader asociado al TextDecoderStream (hecho arriba) debería liberarlo.
+            // Si no, un cancel directo aquí puede fallar si el pipe aún no se ha roto por completo.
+            // Es una situación compleja, priorizar el cierre del puerto.
+            if (portToClose.readable.locked) {
+                addLog("SerialPort.readable sigue bloqueado. Se intentará cerrar el puerto de todas formas.");
+            }
         } catch (e:any) {
-            addLog(`Error al cancelar SerialPort.readable: ${e.message}. Puede ser normal si el pipe ya lo cerró.`);
+            addLog(`Error al verificar/cancelar SerialPort.readable: ${e.message}.`);
         }
     }
-    // El writable del puerto no lo usamos para enviar, así que no necesitamos abortarlo en este flujo
     
     try {
       await portToClose.close();
       addLog("Puerto serial cerrado exitosamente.");
     } catch (error: any) {
-      addLog(`Error al cerrar puerto serial: ${error.message}`);
+      addLog(`Error al cerrar puerto serial (puede ser que ya estuviera cerrado o en proceso): ${error.message}`);
     }
     
     if (portRef.current === portToClose) {
         portRef.current = null;
     }
-    if (textDecoderStreamRef.current) {
-        textDecoderStreamRef.current = null;
-    }
+    textDecoderStreamRef.current = null;
 
     setPortInfo(null);
     setIsConnected(false);
-    setIsConnecting(false); // Asegurarse que isConnecting se resetea
+    setIsConnecting(false);
     
     if (showToast) {
         toast({ title: "Dispositivo Desconectado", description: "Conexión serial terminada." });
@@ -189,7 +171,7 @@ export function UsbDeviceConnector() {
 
 
   const readLoop = useCallback(async (currentStringReader: ReadableStreamDefaultReader<string>) => {
-    addLog("DEBUG: readLoop iniciado.");
+    addLog("Iniciando bucle de lectura de strings...");
     let lineBuffer = '';
     try {
       while (keepReadingRef.current) {
@@ -203,56 +185,49 @@ export function UsbDeviceConnector() {
           break;
         }
 
-        if (value) {
-            addLog(`DEBUG: Chunk recibido: [${value}] (longitud: ${value.length})`);
-            if (typeof value !== 'string') {
-                addLog(`Error: readLoop esperaba un string pero recibió ${typeof value}. Valor: ${JSON.stringify(value)}`);
-                if (portRef.current) {
-                    await disconnectPort(portRef.current, true);
-                }
-                break;
-            }
-            lineBuffer += value;
-            addLog(`DEBUG: lineBuffer después de añadir chunk: [${lineBuffer}]`);
+        if (typeof value !== 'string') {
+            addLog(`Error: readLoop esperaba un string pero recibió ${typeof value}. Valor: ${JSON.stringify(value)}`);
+            if (portRef.current) await disconnectPort(portRef.current, true);
+            break;
         }
+        // addLog(`DEBUG: Chunk recibido: [${value}] (longitud: ${value.length})`);
+        lineBuffer += value;
+        // addLog(`DEBUG: lineBuffer después de añadir chunk: [${lineBuffer}]`);
         
         let newlineIndex;
-        // Procesa todas las líneas completas en el buffer
         while ((newlineIndex = lineBuffer.indexOf('\n')) >= 0) {
           const completeLineRaw = lineBuffer.substring(0, newlineIndex);
-          const completeLine = completeLineRaw.trim(); // Quitar espacios y CR
+          const completeLine = completeLineRaw.trim();
           
-          addLog(`DEBUG: Procesando línea del buffer (raw): [${completeLineRaw}]`);
-          addLog(`DEBUG: Procesando línea del buffer (trimmed): [${completeLine}]`);
+          // addLog(`DEBUG: Procesando línea del buffer (raw): [${completeLineRaw}]`);
+          // addLog(`DEBUG: Procesando línea del buffer (trimmed): [${completeLine}]`);
           
-          lineBuffer = lineBuffer.substring(newlineIndex + 1); // Actualizar buffer con lo restante
-          addLog(`DEBUG: Resto del lineBuffer: [${lineBuffer}]`);
+          lineBuffer = lineBuffer.substring(newlineIndex + 1);
+          // addLog(`DEBUG: Resto del lineBuffer: [${lineBuffer}]`);
 
           if (completeLine.length > 0) {
-            addLog(`Línea completa recibida: ${completeLine}`);
             if (completeLine.startsWith("{") && completeLine.endsWith("}")) {
+              addLog(`Línea completa recibida: ${completeLine}`);
               await processReceivedData(completeLine);
             } else {
               addLog(`Línea recibida no parece ser JSON válido (no empieza/termina con {} o formato incorrecto). Descartando: ${completeLine}`);
             }
           } else {
-            addLog("Línea vacía después de trim, descartando.");
+            // addLog("Línea vacía después de trim, descartando.");
           }
         }
       }
     } catch (error: any) {
-      if (keepReadingRef.current) {
+      if (keepReadingRef.current) { // Solo loguear como error si no es una desconexión intencional
         addLog(`Error en bucle de lectura de strings: ${error.message}`);
-        if (portRef.current) {
-            await disconnectPort(portRef.current, true);
-        }
+        if (portRef.current) await disconnectPort(portRef.current, true);
       } else {
-        addLog(`Bucle de lectura (desconexión ya iniciada) encontró error esperado: ${error.message}`);
+        addLog(`Bucle de lectura (desconexión ya iniciada) encontró error/cierre esperado: ${error.message}`);
       }
     } finally {
       addLog("Bucle de lectura de strings terminado.");
     }
-  }, [addLog, processReceivedData, disconnectPort]); // disconnectPort es una dependencia
+  }, [addLog, processReceivedData, disconnectPort]);
 
 
   const handleConnect = useCallback(async () => {
@@ -263,7 +238,8 @@ export function UsbDeviceConnector() {
     }
 
     if (portRef.current || isConnecting) {
-        addLog("Conexión activa o en proceso.");
+        addLog("Conexión activa o en proceso. No se puede iniciar una nueva.");
+        toast({ title: "Conexión Existente", description: "Ya hay una conexión activa o en proceso.", variant: "default" });
         return;
     }
 
@@ -273,12 +249,17 @@ export function UsbDeviceConnector() {
     
     try {
       requestedPort = await navigator.serial.requestPort();
-      portRef.current = requestedPort; // Asignar el puerto solicitado a portRef
+      if (!requestedPort) { // User cancelled port selection
+          addLog("Selección de puerto cancelada por el usuario.");
+          setIsConnecting(false);
+          return;
+      }
+      portRef.current = requestedPort;
       
       await requestedPort.open({ baudRate: 9600 });
       const portDetails = requestedPort.getInfo();
       const portIdentifier = portDetails.usbVendorId && portDetails.usbProductId 
-        ? `VID:0x${portDetails.usbVendorId.toString(16)} PID:0x${portDetails.usbProductId.toString(16)}`
+        ? `VID:0x${portDetails.usbVendorId.toString(16).padStart(4, '0')} PID:0x${portDetails.usbProductId.toString(16).padStart(4, '0')}`
         : "Puerto Genérico";
       setPortInfo(portIdentifier);
       addLog(`Puerto ${portIdentifier} abierto.`);
@@ -300,7 +281,7 @@ export function UsbDeviceConnector() {
         .catch(async (pipeError: any) => {
           if (keepReadingRef.current && portRef.current) { 
                addLog(`Error en el 'pipe' del puerto al decodificador: ${pipeError.message}`);
-               await disconnectPort(portRef.current, true); 
+               if (portRef.current) await disconnectPort(portRef.current, true); 
           } else {
                addLog(`Error de 'pipe' (desconexión ya iniciada o stream cerrado): ${pipeError.message}`);
           }
@@ -309,7 +290,7 @@ export function UsbDeviceConnector() {
       setIsConnected(true);
       setIsConnecting(false);
       addLog(`Conectado a puerto: ${portIdentifier}`);
-      toast({ title: "Dispositivo Conectado", description: "Conexión serial establecida." });
+      toast({ title: "Dispositivo Conectado", description: `Conexión serial establecida con ${portIdentifier}.` });
 
       readLoop(stringReaderRef.current);
 
@@ -318,19 +299,20 @@ export function UsbDeviceConnector() {
       if (error.name === 'NotFoundError') {
         addLog("Selección de puerto cancelada por el usuario.");
       } else if (error.name === 'SecurityError') {
-        addLog("Error de Seguridad: No se pudo acceder al puerto. Puede ser por política de permisos (Permissions Policy) o puerto no confiable. Asegúrate que el entorno (ej. iframe) permita 'serial'.");
-        toast({ title: "Error de Permisos", description: "Acceso a Web Serial denegado. Revisa la consola y la política de permisos del entorno.", variant: "destructive" });
+        addLog("Error de Seguridad: No se pudo acceder al puerto. Puede ser por política de permisos o puerto no confiable.");
+        toast({ title: "Error de Permisos", description: "Acceso a Web Serial denegado. Revisa la consola y la política de permisos.", variant: "destructive" });
       } else if (error.message.includes("port is already open") || error.name === "InvalidStateError") {
-        addLog("El puerto ya está abierto. Otra aplicación podría estar usándolo o el estado es inválido.");
+        addLog("El puerto ya está abierto o en estado inválido.");
         toast({ title: "Puerto Ocupado/Error", description: "El puerto ya está en uso o en un estado inválido. Cierra otras aplicaciones (ej. Arduino IDE Serial Monitor) e inténtalo de nuevo.", variant: "destructive" });
       } else {
         toast({ title: "Error de Conexión", description: error.message, variant: "destructive" });
       }
       
-      if (portRef.current) { // Usar portRef.current que es el más actualizado
+      if (portRef.current) {
         await disconnectPort(portRef.current, false); 
+      } else if (requestedPort) { // If portRef was not set yet but requestPort succeeded
+        await disconnectPort(requestedPort, false);
       }
-      portRef.current = null; // Asegurar que se limpia
       setPortInfo(null);
       setIsConnected(false);
       setIsConnecting(false); 
@@ -342,12 +324,11 @@ export function UsbDeviceConnector() {
     return () => {
       if (portInstanceAtEffectTime) { 
         addLog("Cleanup de useEffect (desmontaje)... Desconectando puerto si está activo.");
-        keepReadingRef.current = false; 
-        disconnectPort(portInstanceAtEffectTime, false).catch(e => addLog(`Error en desconexión durante desmontaje: ${e.message}`)); 
+        // No await aquí, es un cleanup. La función disconnectPort se encargará.
+        disconnectPort(portInstanceAtEffectTime, false).catch(e => addLog(`Error en desconexión durante desmontaje (useEffect cleanup): ${e.message}`)); 
       }
     };
-  }, [addLog, disconnectPort]); 
-
+  }, [disconnectPort]); // disconnectPort es estable debido a useCallback
 
   return (
     <Card className="shadow-lg">
@@ -357,20 +338,19 @@ export function UsbDeviceConnector() {
           Conectar Dispositivo USB (Experimental)
         </CardTitle>
         <CardDescription>
-          Conecta tu Arduino u otro dispositivo serial para enviar datos de sensores directamente.
-          Asegúrate que tu dispositivo envíe datos JSON por línea (terminados con newline), incluyendo un `hardwareId`.
+          Conecta tu Arduino para enviar datos de sensores. Asegúrate que envíe JSON por línea con `hardwareId`.
           Ej: { "`{\"hardwareId\": \"TU_HW_ID\", \"temperature\": 25.5}`" }
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center space-x-4">
           {!isConnected ? (
-            <Button onClick={handleConnect} disabled={isConnecting || !!portRef.current}>
+            <Button onClick={handleConnect} disabled={isConnecting}>
               {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
               Conectar Dispositivo
             </Button>
           ) : (
-            <Button onClick={() => { if (portRef.current) disconnectPort(portRef.current, true);}} variant="destructive" disabled={!portRef.current && !isConnecting}>
+            <Button onClick={() => { if (portRef.current) disconnectPort(portRef.current, true);}} variant="destructive" disabled={isConnecting}>
               <XCircle className="mr-2 h-4 w-4" />
               Desconectar Dispositivo
             </Button>
@@ -395,4 +375,3 @@ export function UsbDeviceConnector() {
     </Card>
   );
 }
-
