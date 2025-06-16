@@ -1,7 +1,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
-import type { Device, SensorReading } from '@/lib/types'; // Asegúrate que SensorReading esté bien definido
+import type { Device, SensorReading } from '@/lib/types';
 import { SensorType } from '@/lib/types';
 import { z } from 'zod';
 
@@ -22,24 +22,23 @@ export async function POST(request: NextRequest) {
   console.log('[API/ingest] Received POST request');
   try {
     const payload: SensorPayload | SensorPayload[] = await request.json();
-    console.log('[API/ingest] Payload recibido:', JSON.stringify(payload, null, 2));
+    console.log('[API/ingest] Payload JSON crudo recibido del cliente:', JSON.stringify(payload, null, 2));
 
-    const readingsToInsert: Omit<SensorReading, 'id'>[] = []; // No incluir 'timestamp' aquí
+    const readingsToInsert: Omit<SensorReading, 'id'>[] = [];
     const now = Date.now();
     const db = await getDb();
 
     const processPayloadItem = async (item: SensorPayload) => {
       const validation = sensorReadingSchema.safeParse(item);
       if (!validation.success) {
-        console.warn('[API/ingest] Dato de sensor inválido recibido:', validation.error.format(), 'Item:', item);
-        // Devolver un error específico o no añadir a readingsToInsert
+        console.warn('[API/ingest] Dato de sensor inválido recibido (falla validación Zod):', validation.error.format(), 'Item:', item);
         return { success: false, error: validation.error.format() };
       }
       const { hardwareId, temperature, airHumidity, soilHumidity, lightLevel, waterLevel, ph } = validation.data;
 
       const device = await db.get<Device>('SELECT serialNumber FROM devices WHERE hardwareIdentifier = ?', hardwareId);
       if (!device) {
-        console.warn(`[API/ingest] Dispositivo con hardwareId ${hardwareId} no encontrado. Descartando datos de sensores.`);
+        console.warn(`[API/ingest] Dispositivo con hardwareId ${hardwareId} no encontrado en DB. Descartando datos de sensores.`);
         return { success: false, error: `Device with hardwareId ${hardwareId} not found.` };
       }
       const deviceId = device.serialNumber;
@@ -57,7 +56,7 @@ export async function POST(request: NextRequest) {
         readingsToInsert.push({ deviceId, type: SensorType.LIGHT, value: lightLevel, unit: 'lux', timestamp: now });
       }
       if (waterLevel !== undefined) { 
-        readingsToInsert.push({ deviceId, type: SensorType.WATER_LEVEL, value: waterLevel, unit: '%', timestamp: now }); 
+        readingsToInsert.push({ deviceId, type: SensorType.WATER_LEVEL, value: waterLevel, unit: (waterLevel === 0 || waterLevel === 1) ? 'state' : '%', timestamp: now }); 
       }
       if (ph !== undefined) {
         readingsToInsert.push({ deviceId, type: SensorType.PH, value: ph, unit: '', timestamp: now });
@@ -92,43 +91,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'No valid sensor data to process.' }, { status: 400 });
     }
 
-    console.log('[API/ingest] Lecturas para insertar en BD:', JSON.stringify(readingsToInsert, null, 2));
+    console.log('[API/ingest] Lecturas preparadas para insertar en BD:', JSON.stringify(readingsToInsert, null, 2));
     
     try {
-      await db.transaction(async (txDb) => {
-          console.log('[API/ingest] Iniciando transacción de BD...');
-          const stmt = await txDb.prepare('INSERT INTO sensor_readings (deviceId, type, value, unit, timestamp) VALUES (?, ?, ?, ?, ?)');
-          for (const reading of readingsToInsert) {
-            console.log('[API/ingest] Insertando lectura:', reading);
-            await stmt.run(reading.deviceId, reading.type, reading.value, reading.unit, reading.timestamp);
-          }
-          await stmt.finalize();
-          console.log('[API/ingest] Lecturas insertadas.');
+      console.log('[API/ingest] Iniciando transacción de BD...');
+      await db.run('BEGIN TRANSACTION;');
+      
+      const stmt = await db.prepare('INSERT INTO sensor_readings (deviceId, type, value, unit, timestamp) VALUES (?, ?, ?, ?, ?)');
+      for (const reading of readingsToInsert) {
+        console.log('[API/ingest] Insertando lectura:', reading);
+        await stmt.run(reading.deviceId, reading.type, reading.value, reading.unit, reading.timestamp);
+      }
+      await stmt.finalize();
+      console.log('[API/ingest] Lecturas insertadas.');
 
-          const uniqueDeviceIds = [...new Set(readingsToInsert.map(r => r.deviceId))];
-          for (const dId of uniqueDeviceIds) {
-              console.log(`[API/ingest] Actualizando device ${dId}: lastUpdateTimestamp y isActive.`);
-              await txDb.run('UPDATE devices SET lastUpdateTimestamp = ?, isActive = ? WHERE serialNumber = ?', now, true, dId);
-          }
-          console.log('[API/ingest] Dispositivos actualizados.');
-          console.log('[API/ingest] Transacción de BD completada.');
-      });
+      const uniqueDeviceIds = [...new Set(readingsToInsert.map(r => r.deviceId))];
+      for (const dId of uniqueDeviceIds) {
+          console.log(`[API/ingest] Actualizando device ${dId}: lastUpdateTimestamp y isActive.`);
+          await db.run('UPDATE devices SET lastUpdateTimestamp = ?, isActive = ? WHERE serialNumber = ?', now, true, dId);
+      }
+      console.log('[API/ingest] Dispositivos actualizados.');
+      
+      await db.run('COMMIT;');
+      console.log('[API/ingest] Transacción de BD completada (COMMIT).');
+
     } catch (dbError: any) {
         console.error('[API/ingest] Error durante la transacción de BD:', dbError.message, dbError.stack);
-        // Devuelve un error más específico si es posible.
+        try {
+          await db.run('ROLLBACK;');
+          console.log('[API/ingest] Transacción de BD revertida (ROLLBACK) debido a error.');
+        } catch (rollbackError: any) {
+          console.error('[API/ingest] Error al intentar hacer ROLLBACK:', rollbackError.message, rollbackError.stack);
+        }
+        // Devolver un error más específico si es posible.
         return NextResponse.json({ message: 'Database transaction error occurred.', error: dbError.message, stack: dbError.stack }, { status: 500 });
     }
-
 
     return NextResponse.json({ message: `${readingsToInsert.length} sensor reading(s) processed successfully.` }, { status: 201 });
 
   } catch (error: any) {
     console.error('[API/ingest] Error general en el endpoint:', error.message, error.stack);
-    if (error instanceof SyntaxError) { 
-      return NextResponse.json({ message: 'Invalid JSON payload', error: error.message, stack: error.stack }, { status: 400 });
+    if (error instanceof SyntaxError && error.message.includes("JSON")) { 
+      return NextResponse.json({ message: 'Invalid JSON payload received from client', error: error.message, stack: error.stack }, { status: 400 });
     }
     return NextResponse.json({ message: 'An internal server error occurred.', error: error.message, stack: error.stack }, { status: 500 });
   }
 }
-
     
