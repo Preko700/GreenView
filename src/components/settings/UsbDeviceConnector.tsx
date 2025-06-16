@@ -59,13 +59,13 @@ export function UsbDeviceConnector() {
     setLogMessages(prev => [...prev.slice(-200), `${timestamp}: ${message}`]);
   }, []);
 
-  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload, originalJsonString: string) => {
+  const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload, originalJsonStringForLog: string) => {
     try {
       if (!jsonData.hardwareId) { 
-        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonString.substring(0, 200)}`);
+        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
         return;
       }
-      addLog(`Datos JSON parseados para ${jsonData.hardwareId}: ${originalJsonString.substring(0,200)}`);
+      addLog(`Datos JSON parseados para ${jsonData.hardwareId}: ${originalJsonStringForLog.substring(0,200)}`);
 
       const apiPayload: Partial<ArduinoSensorPayload> = { hardwareId: jsonData.hardwareId };
       if (jsonData.temperature !== undefined) apiPayload.temperature = jsonData.temperature;
@@ -75,7 +75,7 @@ export function UsbDeviceConnector() {
       if (jsonData.waterLevel !== undefined) apiPayload.waterLevel = jsonData.waterLevel;
       if (jsonData.ph !== undefined) apiPayload.ph = jsonData.ph;
       
-      // console.log('[UsbDeviceConnector] Enviando a /api/ingest-sensor-data:', apiPayload);
+      addLog(`[ApiClient] Enviando a /api/ingest-sensor-data: ${JSON.stringify(apiPayload).substring(0,200)}`);
 
       const response = await fetch('/api/ingest-sensor-data', {
         method: 'POST',
@@ -83,23 +83,32 @@ export function UsbDeviceConnector() {
         body: JSON.stringify(apiPayload),
       });
 
-      const result = await response.json();
+      const resultText = await response.text(); // Leer respuesta como texto primero
+      let resultJson;
+      try {
+        resultJson = JSON.parse(resultText); // Intentar parsear como JSON
+      } catch(e) {
+        addLog(`Respuesta del servidor no es JSON válido (Status: ${response.status}). Texto: ${resultText.substring(0, 300)}`);
+        throw new Error(`Error del servidor (Status: ${response.status}). Respuesta no es JSON.`);
+      }
       
       if (!response.ok) {
-        let errorMsg = result.message || `Error del servidor (Status: ${response.status})`;
-        if (result.error) { // If backend sends specific DB error in result.error
-            errorMsg += `. Detalle del Servidor: ${result.error}`;
+        let errorMsg = resultJson.message || `Error del servidor (Status: ${response.status})`;
+        if (resultJson.error) { // Error específico del backend (ej. de DB)
+            errorMsg += `. Detalle del Servidor: ${resultJson.error}`;
+        } else if (resultJson.errors && Array.isArray(resultJson.errors)){ // Errores de validación Zod
+             errorMsg += `. Detalles: ${resultJson.errors.join(', ')}`;
         }
-        addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(result)}`);
+        addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(resultJson).substring(0,500)}`);
         throw new Error(errorMsg);
       }
-      addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${result.message}`);
+      addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${resultJson.message}`);
 
     } catch (error: any) {
-      addLog(`Error procesando/enviando datos JSON: ${error.message}. JSON problemático: "${originalJsonString.substring(0,200)}"`);
+      addLog(`Error procesando/enviando datos JSON: ${error.message}. JSON problemático: "${originalJsonStringForLog.substring(0,200)}"`);
     }
   }, [addLog]);
-
+  
   const disconnectPort = useCallback(async (portToClose: SerialPort | null, showToast: boolean = true) => {
     if (!portToClose) {
       addLog("disconnectPort llamado sin puerto válido.");
@@ -151,9 +160,9 @@ export function UsbDeviceConnector() {
     if (portToClose.readable && portToClose.readable.locked) {
         try {
             addLog("Intentando cancelar SerialPort.readable (puede fallar si el pipe lo controla)...");
-            const rawReaderForCancel = portToClose.readable.getReader(); // Get a new reader to cancel
+            const rawReaderForCancel = portToClose.readable.getReader(); 
             await rawReaderForCancel.cancel("Desconexión por el usuario - cancelando readable del puerto");
-            rawReaderForCancel.releaseLock(); // Release the lock obtained by this new reader
+            rawReaderForCancel.releaseLock(); 
             addLog("SerialPort.readable cancelado y liberado.");
         } catch (e:any) {
             addLog(`Error al cancelar/liberar SerialPort.readable (puede ser esperado): ${e.message}.`);
@@ -197,17 +206,10 @@ export function UsbDeviceConnector() {
           }
           break;
         }
-
-        if (typeof value !== 'string' && value !== undefined && value !== null) {
-          addLog(`ERROR CRÍTICO: readLoop esperaba un string pero recibió ${typeof value}. Primeros 100 caracteres (o representación): ${String(value)?.substring(0,100)}`);
-          if (portRef.current) await disconnectPort(portRef.current, true);
-          break;
-        }
         
-        // Log del tipo y una muestra del chunk tal como llega
         addLog(`DEBUG: Chunk RAW (tipo: ${typeof value}): [${value ? String(value).substring(0, 70).replace(/\r/g, '\\r').replace(/\n/g, '\\n') : 'undefined o null'}] (longitud total del chunk: ${value?.length ?? 0})`);
         
-        lineBuffer += value || '';
+        lineBuffer += (typeof value === 'string' ? value : ''); // Asegurar que solo se añaden strings
         addLog(`DEBUG: lineBuffer después de añadir chunk (primeros 200 chars): [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
         
         let newlineIndex;
@@ -216,15 +218,14 @@ export function UsbDeviceConnector() {
           lineBuffer = lineBuffer.substring(newlineIndex + 1);    
 
           const trimmedLineOriginal = rawLine.trim();
-          // Sanitización más agresiva: eliminar caracteres no estándar excepto los básicos de JSON y whitespace común.
-          // Esto intenta eliminar caracteres de control invisibles, BOMs, etc.
-          // Mantenemos: espacio, ", :, {, }, [, ], ,, ., -, números, letras, \r, \n, \t
-          const sanitizedLine = trimmedLineOriginal.replace(/[^\x20-\x7E\t\r\n]|(?![-\d[\]{},":a-zA-Z\s])./g, '');
+          // Regex para eliminar solo caracteres de control excepto tab, CR, LF. Preserva underscores.
+          const sanitizedLine = trimmedLineOriginal.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
 
           addLog(`DEBUG: Procesando línea del buffer (raw): [${rawLine.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
           addLog(`DEBUG: Procesando línea del buffer (trimmed original): [${trimmedLineOriginal.substring(0,200)}] (Longitud: ${trimmedLineOriginal.length})`);
           addLog(`DEBUG: Procesando línea del buffer (sanitizada): [${sanitizedLine.substring(0,200)}] (Longitud: ${sanitizedLine.length})`);
+
 
           if (sanitizedLine.length > 0) {
             addLog(`DEBUG: Intentando JSON.parse en (sanitizada): [${sanitizedLine.substring(0,200)}]`);
@@ -280,7 +281,7 @@ export function UsbDeviceConnector() {
       }
       portRef.current = requestedPort;
       
-      await requestedPort.open({ baudRate: 9600 }); // Ajusta baudRate si es necesario
+      await requestedPort.open({ baudRate: 9600 }); 
       const portDetails = requestedPort.getInfo();
       const portIdentifier = portDetails.usbVendorId && portDetails.usbProductId 
         ? `VID:0x${portDetails.usbVendorId.toString(16).padStart(4, '0')} PID:0x${portDetails.usbProductId.toString(16).padStart(4, '0')}`
@@ -351,7 +352,7 @@ export function UsbDeviceConnector() {
         disconnectPort(portInstanceAtEffectTime, false).catch(e => addLog(`Error en desconexión durante desmontaje (useEffect cleanup): ${e.message}`)); 
       }
     };
-  }, [disconnectPort, addLog]); // disconnectPort y addLog están memoizadas
+  }, [disconnectPort, addLog]); 
 
   return (
     <Card className="shadow-lg">
