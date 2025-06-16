@@ -2,8 +2,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+// Importaciones explícitas para debugging
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+// Importaciones separadas para cada componente de Card
+import { Card } from '@/components/ui/card';
+import { CardHeader } from '@/components/ui/card';
+import { CardTitle } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
+import { CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Zap, XCircle, CheckCircle, Usb } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -27,9 +33,26 @@ declare global {
     getInfo(): SerialPortInfo;
     forget?(): Promise<void>;
   }
-  interface SerialOptions { baudRate: number; dataBits?: 7 | 8; stopBits?: 1 | 2; parity?: "none" | "even" | "odd"; bufferSize?: number; flowControl?: "none" | "hardware"; }
-  interface Navigator { serial: { requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>; getPorts(): Promise<SerialPort[]>; }; }
-  interface SerialPortRequestOptions { filters?: Array<{ usbVendorId?: number; usbProductId?: number; }>; }
+  interface SerialOptions { 
+    baudRate: number; 
+    dataBits?: 7 | 8; 
+    stopBits?: 1 | 2; 
+    parity?: "none" | "even" | "odd"; 
+    bufferSize?: number; 
+    flowControl?: "none" | "hardware"; 
+  }
+  interface Navigator { 
+    serial: { 
+      requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>; 
+      getPorts(): Promise<SerialPort[]>; 
+    }; 
+  }
+  interface SerialPortRequestOptions { 
+    filters?: Array<{ 
+      usbVendorId?: number; 
+      usbProductId?: number; 
+    }>; 
+  }
 }
 
 interface ArduinoMessageBase {
@@ -56,7 +79,6 @@ interface ArduinoAckIntervalMessage extends ArduinoMessageBase {
   new_interval_ms?: number;
   hardwareId: string;
 }
-
 
 export function UsbDeviceConnector() {
   const { toast } = useToast();
@@ -112,7 +134,7 @@ export function UsbDeviceConnector() {
     addLog(`Dispositivo Arduino conectado con hardwareId: ${hwId}. Obteniendo configuración...`);
     setConnectedDeviceHardwareId(hwId);
     try {
-      const deviceDetailsRes = await fetch(`/api/devices?hardwareIdentifier=${hwId}&userId=${authUser.id}`);
+      const deviceDetailsRes = await fetch(`/api/devices?hardwareIdentifier=${hwId}&userId=${authUser.id}`, { cache: 'no-store' });
       if (!deviceDetailsRes.ok) {
         const errorText = await deviceDetailsRes.text();
         let errorMessage = `Error obteniendo detalles del dispositivo (${deviceDetailsRes.status}).`;
@@ -127,7 +149,7 @@ export function UsbDeviceConnector() {
       const device: Device = await deviceDetailsRes.json();
       addLog(`Dispositivo encontrado en DB: ${device.name} (SN: ${device.serialNumber})`);
 
-      const settingsRes = await fetch(`/api/device-settings/${device.serialNumber}?userId=${authUser.id}`);
+      const settingsRes = await fetch(`/api/device-settings/${device.serialNumber}?userId=${authUser.id}`, { cache: 'no-store' });
       if (!settingsRes.ok) {
         const errorText = await settingsRes.text();
         let errorMessage = `Error obteniendo configuración del dispositivo (${settingsRes.status}).`;
@@ -150,7 +172,6 @@ export function UsbDeviceConnector() {
       toast({ title: "Error de Configuración del Dispositivo", description: error.message, variant: "destructive" });
     }
   }, [authUser, addLog, sendCommandToArduino, toast, setConnectedDeviceHardwareId]);
-
 
   const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload | ArduinoHelloMessage | ArduinoAckIntervalMessage, originalJsonStringForLog: string) => {
     addLog(`Datos JSON parseados para ${jsonData.hardwareId || 'ID_DESCONOCIDO'}: ${JSON.stringify(jsonData).substring(0, 200)}`);
@@ -225,7 +246,6 @@ export function UsbDeviceConnector() {
         addLog(`Mensaje JSON de tipo desconocido '${jsonData.type}' recibido de ${jsonData.hardwareId}. Descartando: ${originalJsonStringForLog.substring(0, 200)}`);
     }
   }, [addLog, fetchAndSetDeviceInterval, toast]);
-
 
   const disconnectPort = useCallback(async (portToClose: SerialPort | null, showToast: boolean = true) => {
     if (!portToClose) {
@@ -304,7 +324,6 @@ export function UsbDeviceConnector() {
     addLog("Proceso de desconexión completado.");
   }, [addLog, toast]);
 
-
   const readLoop = useCallback(async (currentStringReader: ReadableStreamDefaultReader<string>) => {
     addLog("Iniciando bucle de lectura de strings...");
     let lineBuffer = '';
@@ -359,7 +378,6 @@ export function UsbDeviceConnector() {
     }
   }, [addLog, processReceivedData, disconnectPort]);
 
-
   const handleConnect = useCallback(async () => {
     if (!navigator.serial) {
       addLog("Web Serial API no es soportada por este navegador.");
@@ -386,6 +404,7 @@ export function UsbDeviceConnector() {
       requestedPort = await navigator.serial.requestPort();
       if (!requestedPort) {
           addLog("Selección de puerto cancelada.");
+          setIsConnecting(false); // Asegurarse de resetear el estado de conexión
           return;
       }
       portRef.current = requestedPort;
@@ -430,6 +449,7 @@ export function UsbDeviceConnector() {
       stringReaderRef.current = textDecoderStreamRef.current.readable.getReader();
 
       setIsConnected(true);
+      setIsConnecting(false); // Marcar como conectado y no conectando
       addLog(`Conectado a puerto: ${portIdentifier}`);
       toast({ title: "Dispositivo Conectado", description: `Conexión serial establecida con ${portIdentifier}. Esperando 'hello' del Arduino.` });
 
@@ -462,10 +482,9 @@ export function UsbDeviceConnector() {
       setPortInfo(null);
       setConnectedDeviceHardwareId(null);
       setIsConnected(false);
-    } finally {
-        setIsConnecting(false); 
+      setIsConnecting(false); // Asegurarse de resetear el estado de conexión en caso de error
     }
-  }, [authUser, addLog, toast, isConnecting, disconnectPort, readLoop, fetchAndSetDeviceInterval, setConnectedDeviceHardwareId]);
+  }, [authUser, addLog, toast, isConnecting, disconnectPort, readLoop]);
 
 
   useEffect(() => {
@@ -487,8 +506,7 @@ export function UsbDeviceConnector() {
           Conectar Dispositivo USB (Experimental)
         </CardTitle>
         <CardDescription>
-          Conecta tu Arduino para enviar datos de sensores y recibir configuración.
-          El Arduino debe enviar `{"type":"hello_arduino", "hardwareId":"SU_HW_ID"}` al conectar.
+          Conecta tu Arduino para enviar datos de sensores y recibir la configuración del intervalo de medición.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -502,31 +520,31 @@ export function UsbDeviceConnector() {
             <Button 
                 onClick={() => { if (portRef.current) {disconnectPort(portRef.current, true);} }} 
                 variant="destructive" 
-                disabled={isConnecting && !isConnected}
+                disabled={isConnecting && !isConnected} // Should be !isConnecting if isConnected is true
             >
               <XCircle className="mr-2 h-4 w-4" />
               Desconectar Dispositivo
             </Button>
           )}
-          <Badge variant={isConnected ? "default" : "secondary"} className={cn("transition-colors", isConnected && "bg-green-600 hover:bg-green-700 text-white")}>
+           <Badge variant={isConnected ? "default" : "secondary"} className={cn(isConnected ? "bg-green-600 hover:bg-green-700" : "bg-destructive hover:bg-destructive/90", "text-white")}>
             {isConnecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : isConnected ? <CheckCircle className="mr-1 h-4 w-4" /> : <XCircle className="mr-1 h-4 w-4" />}
             {isConnecting ? "Conectando..." : isConnected ? `Conectado a ${connectedDeviceHardwareId || portInfo || 'dispositivo'}` : "Desconectado"}
           </Badge>
         </div>
+        
         {!authUser && <p className="text-sm text-destructive">Debes iniciar sesión para conectar un dispositivo.</p>}
-        <p className="text-sm text-muted-foreground">
-            El `hardwareId` enviado por tu dispositivo USB debe coincidir con el `Hardware Identifier` de un dispositivo registrado en GreenView.
-            El intervalo de medición se configurará automáticamente al conectar.
-        </p>
-
-        <Label htmlFor="serial-log">Log de Conexión Serial:</Label>
-        <ScrollArea id="serial-log" className="h-60 w-full rounded-md border bg-muted/20 p-2 text-xs">
-          {logMessages.length === 0 && <p className="text-muted-foreground italic">Esperando actividad...</p>}
-          {logMessages.map((msg, index) => (
-            <div key={index} className="font-mono leading-relaxed whitespace-pre-wrap break-all border-b border-border/50 py-0.5">{msg}</div>
-          ))}
-        </ScrollArea>
+        
+        <div>
+          <Label htmlFor="serial-log" className="block text-sm font-medium mb-1">Log de Conexión Serial:</Label>
+          <ScrollArea id="serial-log" className="h-60 w-full rounded-md border bg-muted p-2 text-xs">
+            {logMessages.length === 0 && <p className="text-muted-foreground italic">Esperando actividad...</p>}
+            {logMessages.map((msg, index) => (
+              <div key={index} className="font-mono leading-relaxed whitespace-pre-wrap break-all border-b border-border/50 py-0.5 last:border-b-0">{msg}</div>
+            ))}
+          </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   );
 }
+
