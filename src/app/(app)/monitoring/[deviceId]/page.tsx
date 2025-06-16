@@ -41,25 +41,34 @@ export default function MonitoringPage() {
       try {
         const res = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
         if (!res.ok) {
+          let errorMessage = `Failed to fetch device data. Status: ${res.status}`;
           if (res.status === 404) {
-            toast({ title: "Error", description: "Device not found or you're not authorized to view it.", variant: "destructive"});
+            errorMessage = "Device not found or you're not authorized to view it.";
+            toast({ title: "Error", description: errorMessage, variant: "destructive"});
             setDevice(null);
+             // No lanzar error aquí para el 404, el estado de 'device' null se manejará en la UI
           } else {
-            throw new Error("Failed to fetch device data");
+            try {
+              const errorData = await res.json();
+              errorMessage = errorData.message || errorMessage;
+            } catch (e) {
+              // Si el cuerpo del error no es JSON, usamos el mensaje con el status
+            }
+            throw new Error(errorMessage);
           }
         } else {
           const fetchedDevice: Device = await res.json();
           setDevice(fetchedDevice);
           
           const data: { [key in SensorType]?: SensorData[] } = {};
-          sensorTypesForDisplay.forEach(type => { // Populate based on sensorTypesForDisplay
+          sensorTypesForDisplay.forEach(type => {
             data[type] = getMockHistoricalSensorData(fetchedDevice.serialNumber, type);
           });
           setHistoricalData(data);
         }
-      } catch (error) {
-        console.error("Error fetching device:", error);
-        toast({ title: "Error", description: "Could not load device details.", variant: "destructive"});
+      } catch (error: any) { // Captura el error lanzado arriba o errores de red
+        console.error("Error fetching device:", error.message); // Loguear el mensaje específico
+        toast({ title: "Error Loading Device", description: error.message, variant: "destructive"});
         setDevice(null);
       } finally {
         setIsLoading(false);
@@ -67,7 +76,7 @@ export default function MonitoringPage() {
     } else if (!user && deviceId) {
       setIsLoading(true); 
     }
-  }, [deviceId, user, toast, sensorTypesForDisplay]); // Added sensorTypesForDisplay to dependencies
+  }, [deviceId, user, toast, sensorTypesForDisplay]); // sensorTypesForDisplay es estable, no debería causar re-renders innecesarios aquí
 
   useEffect(() => {
     fetchDeviceData();
@@ -76,10 +85,9 @@ export default function MonitoringPage() {
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 space-y-6">
-        <Skeleton className="h-10 w-1/2" /> {/* PageHeader title skeleton */}
+        <Skeleton className="h-10 w-1/2" />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          {/* Render skeletons for charts */}
-          {[...Array(sensorTypesForDisplay.length > 0 ? Math.min(sensorTypesForDisplay.length, 4) : 2)].map((_, i) => ( // Show up to 4 skeletons, or 2 if no types defined yet
+          {[...Array(sensorTypesForDisplay.length > 0 ? Math.min(sensorTypesForDisplay.length, 4) : 2)].map((_, i) => (
             <Skeleton key={i} className="h-[400px] w-full" /> 
           ))}
         </div>
@@ -87,16 +95,18 @@ export default function MonitoringPage() {
     );
   }
 
-  if (!device) {
+  if (!device) { // Esto ahora también cubre el caso 404 manejado en fetchDeviceData
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 text-center">
          <Card className="max-w-md mx-auto">
             <CardHeader>
                 <AlertTriangle className="h-12 w-12 text-destructive mx-auto" />
-                <CardTitle className="text-2xl text-destructive">Device Not Found</CardTitle>
+                <CardTitle className="text-2xl text-destructive">Device Not Loaded</CardTitle>
             </CardHeader>
             <CardContent>
-                <p className="text-muted-foreground mt-2">The device with ID '{deviceId}' could not be loaded or you are not authorized to access it.</p>
+                <p className="text-muted-foreground mt-2">
+                  The device with ID '{deviceId}' could not be loaded. This might be because it was not found, you're not authorized, or an error occurred.
+                </p>
                 <Button onClick={() => router.push('/dashboard')} className="mt-6">
                     <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
                 </Button>
@@ -126,7 +136,13 @@ export default function MonitoringPage() {
             sensorType={type} 
           />
         ))}
+        {Object.keys(historicalData).length === 0 && !isLoading && (
+            <p className="text-muted-foreground lg:col-span-2 text-center py-8">
+                No historical data available for this device.
+            </p>
+        )}
       </div>
     </div>
   );
 }
+
