@@ -128,7 +128,7 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
       return;
     }
     addLog(`Dispositivo Arduino conectado con hardwareId: ${hwId}. Obteniendo configuración...`);
-    setConnectedDeviceHardwareId(hwId); // Ensure this is set before potential early returns
+    setConnectedDeviceHardwareId(hwId); 
     try {
       const deviceDetailsRes = await fetch(`/api/devices?hardwareIdentifier=${hwId}&userId=${authUser.id}`, { cache: 'no-store' });
       if (!deviceDetailsRes.ok) {
@@ -494,12 +494,12 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
     };
   }, [addLog, disconnectPort]);
 
-  useEffect(() => {
-    // Log para ver si el useEffect se dispara y con qué valores
+ useEffect(() => {
     addLog(
       `useEffect[settingsTimestamp] triggered. Timestamp: ${settingsLastUpdatedTimestamp}, Connected: ${isConnected}, DeviceID: ${connectedDeviceHardwareId}`
     );
-    if (settingsLastUpdatedTimestamp && isConnected && connectedDeviceHardwareId) {
+    // Solo actuar si settingsLastUpdatedTimestamp es un número (no null y no undefined)
+    if (typeof settingsLastUpdatedTimestamp === 'number' && isConnected && connectedDeviceHardwareId) {
       addLog(
         `SYNC: Configuración del dispositivo CAMBIÓ (ts: ${settingsLastUpdatedTimestamp}). Re-aplicando intervalo para ${connectedDeviceHardwareId}...`
       );
@@ -563,4 +563,3 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
   );
 }
 
-    

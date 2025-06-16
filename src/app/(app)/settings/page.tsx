@@ -35,7 +35,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector'; // Importar el nuevo componente
+import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector';
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -81,6 +81,7 @@ export default function SettingsPage() {
   const [isDeviceSaving, setIsDeviceSaving] = useState(false);
   const [isDevicesLoading, setIsDevicesLoading] = useState(true);
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
+  const [settingsLastUpdatedTimestamp, setSettingsLastUpdatedTimestamp] = useState<number | null>(null);
 
 
   const userForm = useForm<z.infer<typeof userSettingsSchema>>({
@@ -161,7 +162,7 @@ export default function SettingsPage() {
         });
       }
     } catch (error: any) {
-      if (!dbSchemaError) { // Avoid double-toasting if dbSchemaError is already set
+      if (!dbSchemaError) { 
         toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
       }
       console.error("Error fetching devices:", error.message);
@@ -293,11 +294,16 @@ export default function SettingsPage() {
             body: JSON.stringify({ ...values, userId: authUser.id }), 
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.message || 'Failed to save device settings');
+         if (!response.ok) {
+             throw new Error(data.message || 'Failed to save device settings');
+         }
         
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
         setCurrentDeviceSettings(data.settings); 
         deviceForm.reset(data.settings); 
+        const newTimestamp = Date.now();
+        setSettingsLastUpdatedTimestamp(newTimestamp);
+        console.log('[SettingsPage] Device settings saved. New timestamp for UsbDeviceConnector:', newTimestamp);
 
     } catch (error: any) {
         toast({ title: "Save Failed", description: error.message, variant: "destructive" });
@@ -338,7 +344,7 @@ export default function SettingsPage() {
         description="Manage your profile, devices, and their configurations."
       />
 
-      <UsbDeviceConnector />
+      <UsbDeviceConnector settingsLastUpdatedTimestamp={settingsLastUpdatedTimestamp} />
 
       <Card className="shadow-lg">
         <CardHeader>
