@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Zap, XCircle, CheckCircle, Usb } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -96,7 +96,6 @@ export function UsbDeviceConnector() {
         try {
             // No es necesario writer.close() aquí si se va a seguir escribiendo.
             // Simplemente liberar el lock.
-            // await writer.ready; // Wait for any pending writes to complete
         } catch (e) {
              // Ignore errors on closing, main thing is releaseLock below
         }
@@ -297,7 +296,7 @@ export function UsbDeviceConnector() {
     setConnectedDeviceHardwareId(null);
     setPortInfo(null);
     setIsConnected(false);
-    setIsConnecting(false); // Ensure this is set
+    setIsConnecting(false); 
 
     if (showToast) {
         toast({ title: "Dispositivo Desconectado", description: "Conexión serial terminada." });
@@ -333,7 +332,6 @@ export function UsbDeviceConnector() {
           lineBuffer = lineBuffer.substring(newlineIndex + 1);
 
           const trimmedLineOriginal = rawLine.trim();
-          // Sanitize: remove control characters except for \t, \r, \n
           const sanitizedLine = trimmedLineOriginal.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
           if (sanitizedLine.length > 0) {
@@ -388,7 +386,6 @@ export function UsbDeviceConnector() {
       requestedPort = await navigator.serial.requestPort();
       if (!requestedPort) {
           addLog("Selección de puerto cancelada.");
-          // setIsConnecting(false) will be handled by finally block
           return;
       }
       portRef.current = requestedPort;
@@ -416,7 +413,6 @@ export function UsbDeviceConnector() {
         .catch(async (pipeError: any) => {
           if (keepReadingRef.current && portRef.current) {
                addLog(`Error en el 'pipe' del puerto al decodificador: ${pipeError.message}`);
-               // Only disconnect if the error is for the current active port
                if (portRef.current === requestedPort) { 
                  await disconnectPort(portRef.current, true);
                } else {
@@ -437,28 +433,25 @@ export function UsbDeviceConnector() {
       addLog(`Conectado a puerto: ${portIdentifier}`);
       toast({ title: "Dispositivo Conectado", description: `Conexión serial establecida con ${portIdentifier}. Esperando 'hello' del Arduino.` });
 
-      readLoop(stringReaderRef.current); // This runs in the background, not awaited
+      readLoop(stringReaderRef.current);
 
     } catch (error: any) {
       addLog(`Error al conectar: ${error.message}`);
       if (error.name === 'NotFoundError') {
         addLog("Selección de puerto cancelada por el usuario.");
-        // No toast needed for user cancellation
       } else if (error.name === 'SecurityError') {
         addLog("Error de Seguridad: " + error.message);
         toast({ title: "Error de Permisos", description: "Acceso a Web Serial denegado. Asegúrate de estar en un contexto seguro (HTTPS) y que el navegador lo permita.", variant: "destructive" });
       } else if (error.message.includes("port is already open") || error.name === "InvalidStateError") {
          addLog("El puerto ya está abierto o en estado inválido: " + error.message);
          toast({ title: "Puerto Ocupado/Error", description: "El puerto ya está en uso o en estado inválido. Intenta desconectar primero si hay una conexión previa.", variant: "destructive" });
-      }
-      else {
+      } else {
         toast({ title: "Error de Conexión", description: error.message, variant: "destructive" });
       }
 
-      // Cleanup on error
-      if (portRef.current) { // This might be the problematic port or an older one if `requestPort` failed weirdly
-        await disconnectPort(portRef.current, false); // disconnectPort handles setting portRef.current to null
-      } else if (requestedPort) { // If portRef.current was never set or already nulled
+      if (portRef.current) {
+        await disconnectPort(portRef.current, false); 
+      } else if (requestedPort) { 
         try { 
           await requestedPort.close(); 
           addLog("Puerto solicitado (requestedPort) cerrado directamente en catch de handleConnect.");
@@ -466,12 +459,11 @@ export function UsbDeviceConnector() {
           addLog(`Error cerrando requestedPort en catch de handleConnect: ${e.message}`);
         }
       }
-      // Redundant state setters if disconnectPort handles them, but safe
       setPortInfo(null);
       setConnectedDeviceHardwareId(null);
       setIsConnected(false);
     } finally {
-        setIsConnecting(false); // Crucial: ensure connecting state is reset
+        setIsConnecting(false); 
     }
   }, [authUser, addLog, toast, isConnecting, disconnectPort, readLoop, fetchAndSetDeviceInterval, setConnectedDeviceHardwareId]);
 
@@ -510,7 +502,7 @@ export function UsbDeviceConnector() {
             <Button 
                 onClick={() => { if (portRef.current) {disconnectPort(portRef.current, true);} }} 
                 variant="destructive" 
-                disabled={isConnecting && !isConnected} // Should be just isConnecting, or perhaps !portRef.current for safety
+                disabled={isConnecting && !isConnected}
             >
               <XCircle className="mr-2 h-4 w-4" />
               Desconectar Dispositivo
