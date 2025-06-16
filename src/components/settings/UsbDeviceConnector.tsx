@@ -55,14 +55,14 @@ export function UsbDeviceConnector() {
 
   const addLog = useCallback((message: string) => {
     console.log('[UsbDeviceConnector]', message);
-    setLogMessages(prev => [...prev.slice(-200), `${new Date().toLocaleTimeString()}: ${message}`]);
+    const timestamp = new Date().toLocaleTimeString();
+    setLogMessages(prev => [...prev.slice(-200), `${timestamp}: ${message}`]);
   }, []);
 
   const processReceivedData = useCallback(async (jsonData: ArduinoSensorPayload, originalJsonString: string) => {
-    // jsonData is now pre-parsed by readLoop
     try {
       if (!jsonData.hardwareId) { 
-        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonString.substring(0, 200)}`); // Log original string
+        addLog(`Dato JSON recibido sin 'hardwareId'. Descartando: ${originalJsonString.substring(0, 200)}`);
         return;
       }
       addLog(`Datos JSON parseados para ${jsonData.hardwareId}: ${originalJsonString.substring(0,200)}`);
@@ -75,23 +75,23 @@ export function UsbDeviceConnector() {
       if (jsonData.waterLevel !== undefined) apiPayload.waterLevel = jsonData.waterLevel;
       if (jsonData.ph !== undefined) apiPayload.ph = jsonData.ph;
       
-      console.log('[UsbDeviceConnector] Enviando a /api/ingest-sensor-data:', apiPayload);
+      // console.log('[UsbDeviceConnector] Enviando a /api/ingest-sensor-data:', apiPayload);
 
       const response = await fetch('/api/ingest-sensor-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(apiPayload), // Send only the necessary data
+        body: JSON.stringify(apiPayload),
       });
 
       const result = await response.json();
       
       if (!response.ok) {
-        let errorMessageFromServer = result.message || 'Error al enviar datos al servidor';
-        if (result.error) { // Backend sends specific DB error in result.error
-            errorMessageFromServer += `. Detalle del Servidor: ${result.error}`;
+        let errorMsg = result.message || `Error del servidor (Status: ${response.status})`;
+        if (result.error) { // If backend sends specific DB error in result.error
+            errorMsg += `. Detalle del Servidor: ${result.error}`;
         }
         addLog(`Error del servidor (Status: ${response.status}). Respuesta completa: ${JSON.stringify(result)}`);
-        throw new Error(errorMessageFromServer);
+        throw new Error(errorMsg);
       }
       addLog(`Datos enviados al servidor para ${jsonData.hardwareId}: ${result.message}`);
 
@@ -137,7 +137,6 @@ export function UsbDeviceConnector() {
     }
     textDecoderStreamRef.current = null;
 
-
     if (pipePromiseRef.current) {
         addLog("Esperando que el 'pipe' del puerto al decodificador se complete o falle...");
         try {
@@ -152,9 +151,9 @@ export function UsbDeviceConnector() {
     if (portToClose.readable && portToClose.readable.locked) {
         try {
             addLog("Intentando cancelar SerialPort.readable (puede fallar si el pipe lo controla)...");
-            const rawReaderForCancel = portToClose.readable.getReader();
+            const rawReaderForCancel = portToClose.readable.getReader(); // Get a new reader to cancel
             await rawReaderForCancel.cancel("Desconexión por el usuario - cancelando readable del puerto");
-            rawReaderForCancel.releaseLock();
+            rawReaderForCancel.releaseLock(); // Release the lock obtained by this new reader
             addLog("SerialPort.readable cancelado y liberado.");
         } catch (e:any) {
             addLog(`Error al cancelar/liberar SerialPort.readable (puede ser esperado): ${e.message}.`);
@@ -184,7 +183,8 @@ export function UsbDeviceConnector() {
 
   const readLoop = useCallback(async (currentStringReader: ReadableStreamDefaultReader<string>) => {
     addLog("Iniciando bucle de lectura de strings...");
-    let lineBuffer = '';
+    let lineBuffer = ''; 
+
     try {
       while (keepReadingRef.current) {
         const { value, done } = await currentStringReader.read();
@@ -198,42 +198,51 @@ export function UsbDeviceConnector() {
           break;
         }
 
-        if (typeof value !== 'string') {
-            addLog(`Error: readLoop esperaba un string pero recibió ${typeof value}. Valor (primeros 100 chars): ${JSON.stringify(value)?.substring(0,100)}`);
-            if (portRef.current) await disconnectPort(portRef.current, true);
-            break;
+        if (typeof value !== 'string' && value !== undefined && value !== null) {
+          addLog(`ERROR CRÍTICO: readLoop esperaba un string pero recibió ${typeof value}. Primeros 100 caracteres (o representación): ${String(value)?.substring(0,100)}`);
+          if (portRef.current) await disconnectPort(portRef.current, true);
+          break;
         }
         
-        addLog(`DEBUG: Chunk recibido: [${value.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}] (longitud: ${value.length})`);
-        lineBuffer += value;
-        addLog(`DEBUG: lineBuffer después de añadir chunk: [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+        // Log del tipo y una muestra del chunk tal como llega
+        addLog(`DEBUG: Chunk RAW (tipo: ${typeof value}): [${value ? String(value).substring(0, 70).replace(/\r/g, '\\r').replace(/\n/g, '\\n') : 'undefined o null'}] (longitud total del chunk: ${value?.length ?? 0})`);
+        
+        lineBuffer += value || '';
+        addLog(`DEBUG: lineBuffer después de añadir chunk (primeros 200 chars): [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
         
         let newlineIndex;
         while ((newlineIndex = lineBuffer.indexOf('\n')) >= 0) {
-          const rawLine = lineBuffer.substring(0, newlineIndex +1); // Include \n
-          lineBuffer = lineBuffer.substring(newlineIndex + 1);
-          
-          const trimmedLine = rawLine.trim(); // Remove \r, \n, and other whitespace
-          addLog(`DEBUG: Procesando línea del buffer (raw): [${rawLine.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
-          addLog(`DEBUG: Procesando línea del buffer (trimmed): [${trimmedLine}]`);
+          const rawLine = lineBuffer.substring(0, newlineIndex + 1);
+          lineBuffer = lineBuffer.substring(newlineIndex + 1);    
 
-          if (trimmedLine.length > 0) {
-            addLog(`DEBUG: Intentando JSON.parse en: [${trimmedLine}] (Longitud: ${trimmedLine.length})`);
+          const trimmedLineOriginal = rawLine.trim();
+          // Sanitización más agresiva: eliminar caracteres no estándar excepto los básicos de JSON y whitespace común.
+          // Esto intenta eliminar caracteres de control invisibles, BOMs, etc.
+          // Mantenemos: espacio, ", :, {, }, [, ], ,, ., -, números, letras, \r, \n, \t
+          const sanitizedLine = trimmedLineOriginal.replace(/[^\x20-\x7E\t\r\n]|(?![-\d[\]{},":a-zA-Z\s])./g, '');
+
+
+          addLog(`DEBUG: Procesando línea del buffer (raw): [${rawLine.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+          addLog(`DEBUG: Procesando línea del buffer (trimmed original): [${trimmedLineOriginal.substring(0,200)}] (Longitud: ${trimmedLineOriginal.length})`);
+          addLog(`DEBUG: Procesando línea del buffer (sanitizada): [${sanitizedLine.substring(0,200)}] (Longitud: ${sanitizedLine.length})`);
+
+          if (sanitizedLine.length > 0) {
+            addLog(`DEBUG: Intentando JSON.parse en (sanitizada): [${sanitizedLine.substring(0,200)}]`);
             try {
-              const jsonData = JSON.parse(trimmedLine); 
-              addLog(`Línea completa recibida y parseada: ${trimmedLine.substring(0,200)}`);
-              await processReceivedData(jsonData, trimmedLine); // Pass parsed JSON and original string
+              const jsonData = JSON.parse(sanitizedLine); 
+              addLog(`Línea completa recibida y parseada (desde sanitizada): ${sanitizedLine.substring(0,200)}`);
+              await processReceivedData(jsonData, sanitizedLine); 
             } catch (e: any) {
-              addLog(`Línea recibida no parece ser JSON válido (error de parseo): ${e.message}. Línea: "${trimmedLine.substring(0, 200)}"`);
+              addLog(`Línea recibida no parece ser JSON válido (error de parseo en sanitizada): ${e.message}. Línea sanitizada: "${sanitizedLine.substring(0,200)}". Línea trimmed original: "${trimmedLineOriginal.substring(0,200)}"`);
             }
           } else {
-            addLog(`DEBUG: Línea vacía después de trim. Descartando. Raw: [${rawLine.replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+            addLog(`DEBUG: Línea vacía después de trim/sanitización. Descartando. Raw: [${rawLine.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
           }
-          addLog(`DEBUG: Resto del lineBuffer: [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
+          addLog(`DEBUG: Resto del lineBuffer (primeros 200 chars): [${lineBuffer.substring(0,200).replace(/\r/g, '\\r').replace(/\n/g, '\\n')}]`);
         }
       }
     } catch (error: any) {
-      if (keepReadingRef.current) { // Only log as error if not intentionally disconnecting
+      if (keepReadingRef.current) {
         addLog(`Error en bucle de lectura de strings: ${error.message}. Stack: ${error.stack}`);
         if (portRef.current) await disconnectPort(portRef.current, true);
       } else {
@@ -269,9 +278,9 @@ export function UsbDeviceConnector() {
           setIsConnecting(false);
           return;
       }
-      portRef.current = requestedPort; // Assign to ref early
+      portRef.current = requestedPort;
       
-      await requestedPort.open({ baudRate: 9600 });
+      await requestedPort.open({ baudRate: 9600 }); // Ajusta baudRate si es necesario
       const portDetails = requestedPort.getInfo();
       const portIdentifier = portDetails.usbVendorId && portDetails.usbProductId 
         ? `VID:0x${portDetails.usbVendorId.toString(16).padStart(4, '0')} PID:0x${portDetails.usbProductId.toString(16).padStart(4, '0')}`
@@ -285,10 +294,9 @@ export function UsbDeviceConnector() {
         throw new Error("Puerto serial no tiene stream 'readable'.");
       }
       
-      const currentTextDecoder = new TextDecoderStream(); // Nueva instancia para cada conexión
-      textDecoderStreamRef.current = currentTextDecoder;
+      textDecoderStreamRef.current = new TextDecoderStream('utf-8', { fatal: false, ignoreBOM: true });
       
-      pipePromiseRef.current = requestedPort.readable.pipeTo(currentTextDecoder.writable)
+      pipePromiseRef.current = requestedPort.readable.pipeTo(textDecoderStreamRef.current.writable)
         .then(() => {
             addLog("Pipe de ReadableStream a TextDecoderStream completado (normalmente porque el readable se cerró).");
         })
@@ -301,7 +309,7 @@ export function UsbDeviceConnector() {
           }
         });
       
-      stringReaderRef.current = currentTextDecoder.readable.getReader();
+      stringReaderRef.current = textDecoderStreamRef.current.readable.getReader();
       
       setIsConnected(true);
       setIsConnecting(false);
@@ -315,7 +323,7 @@ export function UsbDeviceConnector() {
       if (error.name === 'NotFoundError') {
         addLog("Selección de puerto cancelada por el usuario.");
       } else if (error.name === 'SecurityError') {
-        addLog("Error de Seguridad: No se pudo acceder al puerto. Política de permisos o HTTPS/localhost. Error: " + error.message);
+        addLog("Error de Seguridad: No se pudo acceder al puerto. Error: " + error.message);
         toast({ title: "Error de Permisos", description: "Acceso a Web Serial denegado. Revisa consola y política de permisos (HTTPS/localhost).", variant: "destructive" });
       } else if (error.message.includes("port is already open") || error.name === "InvalidStateError") {
         addLog("El puerto ya está abierto o en estado inválido. Cierra otras apps (ej. Arduino IDE Serial Monitor).");
@@ -343,8 +351,7 @@ export function UsbDeviceConnector() {
         disconnectPort(portInstanceAtEffectTime, false).catch(e => addLog(`Error en desconexión durante desmontaje (useEffect cleanup): ${e.message}`)); 
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // disconnectPort is memoized and includes its own dependencies
+  }, [disconnectPort, addLog]); // disconnectPort y addLog están memoizadas
 
   return (
     <Card className="shadow-lg">
@@ -391,4 +398,6 @@ export function UsbDeviceConnector() {
     </Card>
   );
 }
+    
+
     
