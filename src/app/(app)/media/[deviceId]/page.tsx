@@ -8,7 +8,7 @@ import { ImageGrid } from '@/components/media/ImageGrid';
 import type { Device, DeviceImage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Camera, Upload, Loader2, AlertTriangle, Film, PlayCircle, Download } from 'lucide-react';
-import Image from 'next/image'; // Added explicit import for next/image
+import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -162,15 +162,15 @@ export default function MediaPage() {
     try {
       const sortedImages = [...images].sort((a, b) => a.timestamp - b.timestamp);
       
-      // Determine dimensions from the first image, with a max width/height for performance
       const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new window.Image(); // Use window.Image to refer to HTMLImageElement constructor
+        const img = new window.Image();
+        img.crossOrigin = "anonymous"; // Add crossOrigin attribute
         img.onload = () => resolve(img);
         img.onerror = reject;
         img.src = sortedImages[0].imageUrl;
       });
 
-      const MAX_DIMENSION = 480; // Max width/height for timelapse frames
+      const MAX_DIMENSION = 480;
       let frameWidth = firstImageElement.naturalWidth;
       let frameHeight = firstImageElement.naturalHeight;
 
@@ -186,9 +186,9 @@ export default function MediaPage() {
       
       const encoder = new GIFEncoder(frameWidth, frameHeight);
       encoder.start();
-      encoder.setRepeat(0); // 0 for loop indefinitely
-      encoder.setDelay(300); // ms per frame (e.g., ~3.3 FPS)
-      encoder.setQuality(15); // 1-30, lower is better quality. 10-15 is usually a good balance.
+      encoder.setRepeat(0); 
+      encoder.setDelay(300); 
+      encoder.setQuality(15); 
 
       const canvas = document.createElement('canvas');
       canvas.width = frameWidth;
@@ -201,17 +201,19 @@ export default function MediaPage() {
       
       for (const deviceImage of sortedImages) {
         await new Promise<void>((resolveFrame, rejectFrame) => {
-          const img = new window.Image(); // Use window.Image here as well
+          const img = new window.Image();
+          if (!deviceImage.imageUrl.startsWith('data:')) { // Only set for external images
+            img.crossOrigin = "anonymous"; // Add crossOrigin attribute
+          }
           img.onload = () => {
-            ctx.clearRect(0, 0, frameWidth, frameHeight); // Clear canvas
+            ctx.clearRect(0, 0, frameWidth, frameHeight);
             ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
             encoder.addFrame(ctx);
             resolveFrame();
           };
           img.onerror = (err) => {
             console.error("Error loading image for timelapse frame:", deviceImage.imageUrl, err);
-            // Optionally skip frame or reject
-            resolveFrame(); // Skip problematic frame
+            resolveFrame(); 
           };
           img.src = deviceImage.imageUrl;
         });
@@ -365,3 +367,4 @@ export default function MediaPage() {
     </div>
   );
 }
+
