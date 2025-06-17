@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeviceSelector } from '@/components/dashboard/DeviceSelector';
 import type { Device, SensorData } from '@/lib/types';
@@ -14,13 +14,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { SensorDisplayCard } from '@/components/dashboard/SensorDisplayCard'; // Asegúrate de importar SensorDisplayCard
+import { SensorDisplayCard } from '@/components/dashboard/SensorDisplayCard';
+import { useUsbConnection } from '@/contexts/UsbConnectionContext'; // NUEVA IMPORTACIÓN
 
 const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { connectedDeviceHardwareId: usbHardwareId, logMessages: usbLogMessages } = useUsbConnection(); // NUEVO
+
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
@@ -30,6 +33,8 @@ export default function DashboardPage() {
   const [isLoadingSensorData, setIsLoadingSensorData] = useState(false);
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
   const [isLocalStorageChecked, setIsLocalStorageChecked] = useState(false);
+
+  const lastProcessedLogCountRef = useRef(0); // NUEVO: Para rastrear logs procesados
 
   const fetchDevices = useCallback(async () => {
     if (!user) return;
@@ -55,12 +60,11 @@ export default function DashboardPage() {
       const data: Device[] = await response.json();
       setDevices(data);
 
-      // Logic to set selectedDeviceId after devices are fetched
       if (data.length > 0) {
         const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
         if (storedDeviceId && data.some(d => d.serialNumber === storedDeviceId)) {
           setSelectedDeviceId(storedDeviceId);
-        } else if (!selectedDeviceId) { // If no device is selected yet (or stored one is invalid)
+        } else if (!selectedDeviceId && data.length > 0) { 
           setSelectedDeviceId(data[0].serialNumber);
         }
       } else {
@@ -78,39 +82,75 @@ export default function DashboardPage() {
       console.error("Error fetching devices on dashboard:", error.message);
     } finally {
       setIsLoadingDevices(false);
-      setIsLocalStorageChecked(true); // Mark localStorage as checked after devices are fetched
+      setIsLocalStorageChecked(true);
     }
-  }, [user, toast, dbSchemaError, selectedDeviceId]); // Added selectedDeviceId to ensure it attempts to keep it if valid
+  }, [user, toast, dbSchemaError, selectedDeviceId]);
 
   useEffect(() => {
     fetchDevices();
   }, [fetchDevices]);
   
-  // Persist selectedDeviceId to localStorage
   useEffect(() => {
-    if (selectedDeviceId && isLocalStorageChecked) { // Only save if localStorage has been checked and a device is selected
+    if (selectedDeviceId && isLocalStorageChecked) {
       localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
+       // Dispatch custom event for SidebarNav to update
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: selectedDeviceId } }));
+      }
+    } else if (!selectedDeviceId && isLocalStorageChecked && typeof window !== 'undefined'){
+        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: null } }));
     }
   }, [selectedDeviceId, isLocalStorageChecked]);
 
 
-  const fetchSensorDataForDevice = useCallback(async (deviceId: string) => {
-    if (!user) return;
+  const fetchSensorDataAndDeviceStatus = useCallback(async (deviceId: string, triggeredByUsb: boolean = false) => {
+    if (!user || !deviceId) return;
     setIsLoadingSensorData(true);
+
+    let sensorDataFetched = false;
+    let deviceStatusRefreshed = false;
+    let deviceNameForToast = currentDevice?.name || deviceId;
+
     try {
-      const response = await fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Failed to fetch sensor data' }));
+      const sensorResponse = await fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`);
+      if (!sensorResponse.ok) {
+        const errorData = await sensorResponse.json().catch(() => ({ message: 'Failed to fetch sensor data' }));
         throw new Error(errorData.message || 'Failed to fetch sensor data');
       }
-      const data: SensorData[] = await response.json();
+      const data: SensorData[] = await sensorResponse.json();
       setSensorReadings(data);
+      sensorDataFetched = true;
     } catch (error: any) {
-      toast({ title: "Error", description: `Could not load sensor data for ${currentDevice?.name || 'device'}: ${error.message}`, variant: "destructive" });
-      setSensorReadings([]); 
-    } finally {
-      setIsLoadingSensorData(false);
+      if (!triggeredByUsb) { // Only toast non-USB errors here, USB errors will be handled by context or specific toast
+        toast({ title: "Error Sensor Data", description: `Could not load sensor data for ${deviceNameForToast}: ${error.message}`, variant: "destructive" });
+      } else {
+        console.warn(`[Dashboard] Silent fail fetching sensor data for ${deviceId} (USB trigger): ${error.message}`)
+      }
+      setSensorReadings([]);
     }
+
+    try {
+        const deviceDetailsRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
+        if (deviceDetailsRes.ok) {
+            const updatedDeviceData: Device = await deviceDetailsRes.json();
+            setCurrentDevice(updatedDeviceData); // Actualiza el dispositivo actual
+            // Actualiza el dispositivo en la lista principal de dispositivos también
+            setDevices(prevDevices => prevDevices.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
+            deviceNameForToast = updatedDeviceData.name; // Update name for toast if it was fetched
+            deviceStatusRefreshed = true;
+        } else {
+            console.warn(`[Dashboard] Failed to refresh device details for ${deviceId}. Status: ${deviceDetailsRes.status}`);
+        }
+    } catch (error) {
+        console.error(`[Dashboard] Error refreshing device details for ${deviceId}:`, error);
+    }
+
+    setIsLoadingSensorData(false);
+
+    if (triggeredByUsb && (sensorDataFetched || deviceStatusRefreshed)) {
+        toast({ title: "Dashboard Updated", description: `Data for ${deviceNameForToast} refreshed via USB connection.`, duration: 3000 });
+    }
+
   }, [user, toast, currentDevice?.name]);
 
 
@@ -119,17 +159,43 @@ export default function DashboardPage() {
       const device = devices.find(d => d.serialNumber === selectedDeviceId);
       setCurrentDevice(device || null);
       if (device) {
-        fetchSensorDataForDevice(device.serialNumber);
+        fetchSensorDataAndDeviceStatus(device.serialNumber, false); // Fetch initially, not triggered by USB
       }
     } else {
         setCurrentDevice(null);
         setSensorReadings([]);
     }
-  }, [selectedDeviceId, devices, fetchSensorDataForDevice]);
+  }, [selectedDeviceId, devices, fetchSensorDataAndDeviceStatus]); // fetchSensorDataAndDeviceStatus added
+
+
+  // NUEVO useEffect para actualizaciones en tiempo real desde USB
+  useEffect(() => {
+    if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || isLoadingSensorData) {
+      // Reset counter if current device doesn't match USB device or if already loading
+      lastProcessedLogCountRef.current = usbLogMessages.length;
+      return;
+    }
+
+    // Check only new log messages since last check
+    const newLogs = usbLogMessages.slice(0, usbLogMessages.length - lastProcessedLogCountRef.current);
+
+    const hasNewRelevantLog = newLogs.some(log =>
+        (log.includes(`MSG: Datos de sensores recibidos de ${usbHardwareId}`) ||
+         log.includes(`API: Datos de ${usbHardwareId} enviados al servidor`))
+    );
+
+    if (hasNewRelevantLog) {
+      console.log(`[Dashboard] USB Update: New relevant log found for ${currentDevice.name}. Refreshing data.`);
+      fetchSensorDataAndDeviceStatus(currentDevice.serialNumber, true); // True for triggeredByUsb
+    }
+    lastProcessedLogCountRef.current = usbLogMessages.length; // Update processed count
+
+  }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataAndDeviceStatus, isLoadingSensorData]);
+
 
   const handleRefreshSensorData = () => {
     if (selectedDeviceId) {
-      fetchSensorDataForDevice(selectedDeviceId);
+      fetchSensorDataAndDeviceStatus(selectedDeviceId, false); // Not triggered by USB
       toast({title: "Sensor Data Refreshing...", description: `Requesting latest readings for ${currentDevice?.name || 'device'}.`});
     }
   };
@@ -184,7 +250,7 @@ export default function DashboardPage() {
         />
       </section>
 
-      {(isLoadingDevices || (selectedDeviceId && isLoadingSensorData) || !isLocalStorageChecked) && (
+      {(isLoadingDevices || (selectedDeviceId && isLoadingSensorData && !currentDevice) || !isLocalStorageChecked) && ( // Ajuste para mostrar skeletons
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {[SensorType.TEMPERATURE, SensorType.AIR_HUMIDITY, SensorType.SOIL_HUMIDITY, SensorType.LIGHT, SensorType.PH, SensorType.WATER_LEVEL].map((type) => (
             <Skeleton key={type} className="h-36 w-full" />
@@ -192,7 +258,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!isLoadingDevices && !isLoadingSensorData && currentDevice && isLocalStorageChecked && (
+      {!isLoadingDevices && currentDevice && isLocalStorageChecked && ( // No esperar a isLoadingSensorData para mostrar el contenedor de la sección
         <section>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-foreground/90">
@@ -208,7 +274,13 @@ export default function DashboardPage() {
                  <span className="text-xs bg-yellow-100 text-yellow-700 font-medium px-2.5 py-0.5 rounded-full dark:bg-yellow-900 dark:text-yellow-300">Status Unknown</span>
             )}
           </div>
-          {(currentDevice.isActive === undefined || currentDevice.isActive) ? ( 
+          {isLoadingSensorData && sensorReadings.length === 0 ? ( // Skeleton para tarjetas de sensores si está cargando y no hay datos previos
+             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {[SensorType.TEMPERATURE, SensorType.AIR_HUMIDITY, SensorType.SOIL_HUMIDITY, SensorType.LIGHT, SensorType.PH, SensorType.WATER_LEVEL].map((type) => (
+                    <Skeleton key={`${type}-loading`} className="h-36 w-full" />
+                ))}
+            </div>
+          ) : (currentDevice.isActive === undefined || currentDevice.isActive) ? ( 
             sensorReadings.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.TEMPERATURE)} sensorType={SensorType.TEMPERATURE} />
@@ -264,3 +336,4 @@ export default function DashboardPage() {
   );
 }
 
+    
