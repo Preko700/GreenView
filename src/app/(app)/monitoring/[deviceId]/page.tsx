@@ -44,15 +44,15 @@ export default function MonitoringPage() {
   const fetchHistoricalDataForSensor = useCallback(async (currentDeviceId: string, sensorType: SensorType): Promise<SensorData[] | null> => {
     if (!user) return null;
     try {
-      const response = await fetch(\`/api/sensor-data/historical/\${currentDeviceId}?userId=\${user.id}&sensorType=\${sensorType}&limit=100\`);
+      const response = await fetch(`/api/sensor-data/historical/${currentDeviceId}?userId=${user.id}&sensorType=${sensorType}&limit=100`);
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: \`Failed to fetch historical data for \${sensorType}\` }));
-        console.warn(\`[MonitoringPage] Failed to fetch historical data for \${sensorType}: \${errorData.message}\`);
+        const errorData = await response.json().catch(() => ({ message: `Failed to fetch historical data for ${sensorType}` }));
+        console.warn(`[MonitoringPage] Failed to fetch historical data for ${sensorType}: ${errorData.message}`);
         return null;
       }
       return await response.json();
     } catch (error: any) {
-      console.error(\`[MonitoringPage] Error fetching historical data for \${sensorType}:\`, error);
+      console.error(`[MonitoringPage] Error fetching historical data for ${sensorType}:`, error);
       return null;
     }
   }, [user]);
@@ -101,12 +101,12 @@ export default function MonitoringPage() {
     setHistoricalData({}); 
 
     try {
-      const deviceRes = await fetch(\`/api/devices/\${deviceId}?userId=\${user.id}\`);
+      const deviceRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
       if (!deviceRes.ok) {
-        let errorMessage = \`Failed to fetch device. Status: \${deviceRes.status}\`;
+        let errorMessage = `Failed to fetch device. Status: ${deviceRes.status}`;
         if (deviceRes.status === 404) errorMessage = "Device not found or you're not authorized.";
         else try { const errorData = await deviceRes.json(); errorMessage = errorData.message || errorMessage; } 
-        catch (e) { const errorText = await deviceRes.text(); errorMessage = \`\${errorMessage}. Server: \${errorText.substring(0, 100)}\`; }
+        catch (e) { const errorText = await deviceRes.text(); errorMessage = `${errorMessage}. Server: ${errorText.substring(0, 100)}`; }
         throw new Error(errorMessage);
       }
       const fetchedDevice: Device = await deviceRes.json();
@@ -132,7 +132,7 @@ export default function MonitoringPage() {
     if (device && device.serialNumber && !isLoadingDevice && !fetchError) {
       pollingIntervalRef.current = setInterval(() => {
         if (!document.hidden) { // Only poll if tab is visible
-            console.log(\`[MonitoringPage] Polling for historical data for device \${device.serialNumber}\`);
+            console.log(`[MonitoringPage] Polling for historical data for device ${device.serialNumber}`);
             fetchAllHistoricalData(device.serialNumber);
         }
       }, POLLING_INTERVAL_MS);
@@ -151,7 +151,7 @@ export default function MonitoringPage() {
   
   const handleManualRefresh = () => {
       if (device && device.serialNumber && !isLoadingHistorical) {
-          toast({ title: "Refreshing Data...", description: \`Fetching latest history for \${device.name}.\` });
+          toast({ title: "Refreshing Data...", description: `Fetching latest history for ${device.name}.` });
           fetchAllHistoricalData(device.serialNumber);
       }
   };
@@ -198,11 +198,11 @@ export default function MonitoringPage() {
   return (
     <div className="container mx-auto py-8 px-4 md:px-6">
       <PageHeader
-        title={\`Monitoring: \${device.name}\`}
-        description={\`Historical sensor data for \${device.serialNumber}.\`}
+        title={`Monitoring: ${device.name}`}
+        description={`Historical sensor data for ${device.serialNumber}.`}
         action={
           <div className="flex items-center gap-2">
-            <Button onClick={handleManualRefresh} variant="outline" disabled={isLoadingHistorical}> <RefreshCw className={\`mr-2 h-4 w-4 \${isLoadingHistorical ? 'animate-spin' : ''}\`} /> Refresh Charts </Button>
+            <Button onClick={handleManualRefresh} variant="outline" disabled={isLoadingHistorical}> <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingHistorical ? 'animate-spin' : ''}`} /> Refresh Charts </Button>
             <Button onClick={() => router.push('/dashboard')} variant="outline"> <ArrowLeft className="mr-2 h-4 w-4" /> Dashboard </Button>
           </div>
         }
@@ -225,7 +225,7 @@ export default function MonitoringPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {SENSOR_TYPES_FOR_DISPLAY.map(type => (
             (isLoadingHistorical && (!historicalData[type] || historicalData[type]?.length === 0)) ? 
-            <Skeleton key={\`\${type}-loading\`} className="h-[400px] w-full" /> :
+            <Skeleton key={`${type}-loading`} className="h-[400px] w-full" /> :
             <DataChart key={type} sensorData={historicalData[type] || []} sensorType={type} />
           ))}
         </div>
@@ -233,3 +233,4 @@ export default function MonitoringPage() {
     </div>
   );
 }
+
