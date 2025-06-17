@@ -8,6 +8,7 @@ import { ImageGrid } from '@/components/media/ImageGrid';
 import type { Device, DeviceImage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Camera, Upload, Loader2, AlertTriangle, Film, PlayCircle, Download } from 'lucide-react';
+import Image from 'next/image'; // Added explicit import for next/image
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -163,7 +164,7 @@ export default function MediaPage() {
       
       // Determine dimensions from the first image, with a max width/height for performance
       const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image();
+        const img = new window.Image(); // Use window.Image to refer to HTMLImageElement constructor
         img.onload = () => resolve(img);
         img.onerror = reject;
         img.src = sortedImages[0].imageUrl;
@@ -200,10 +201,7 @@ export default function MediaPage() {
       
       for (const deviceImage of sortedImages) {
         await new Promise<void>((resolveFrame, rejectFrame) => {
-          const img = new Image();
-          // For cross-origin images if not data URLs (e.g. from placehold.co), this might be needed
-          // but since placehold.co allows CORS, and uploads are data URLs, it might not be strictly necessary here.
-          // img.crossOrigin = "Anonymous"; 
+          const img = new window.Image(); // Use window.Image here as well
           img.onload = () => {
             ctx.clearRect(0, 0, frameWidth, frameHeight); // Clear canvas
             ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
