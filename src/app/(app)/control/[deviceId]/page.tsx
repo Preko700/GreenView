@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ControlCard } from '@/components/control/ControlCard';
 import type { Device, DeviceSettings, SensorType as AppSensorType } from '@/lib/types';
-import { SensorType } from '@/lib/types'; // Ensure this enum is available
+import { SensorType } from '@/lib/types'; 
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle as UiAlertTitle } from '@/components/ui/alert';
+import { useUsbConnection } from '@/contexts/UsbConnectionContext';
 
 interface ControlLoadingStates {
   light: boolean;
@@ -27,12 +28,11 @@ interface ManualReadingLoadingStates {
   [key: string]: boolean; // SensorType as key
 }
 
-// Define which sensors support manual reading requests
-const SENSOR_TYPES_FOR_MANUAL_READING: { type: AppSensorType, name: string, icon: React.ElementType }[] = [
-    { type: SensorType.TEMPERATURE, name: "Temperature", icon: Thermometer },
-    { type: SensorType.AIR_HUMIDITY, name: "Air Humidity", icon: CloudDrizzle },
-    { type: SensorType.SOIL_HUMIDITY, name: "Soil Humidity", icon: Leaf },
-    { type: SensorType.LIGHT, name: "Light Level", icon: Sun },
+const SENSOR_TYPES_FOR_MANUAL_READING: { type: AppSensorType, name: string, icon: React.ElementType, commandType: string }[] = [
+    { type: SensorType.TEMPERATURE, name: "Temperature", icon: Thermometer, commandType: "TEMPERATURE" },
+    { type: SensorType.AIR_HUMIDITY, name: "Air Humidity", icon: CloudDrizzle, commandType: "AIR_HUMIDITY" },
+    { type: SensorType.SOIL_HUMIDITY, name: "Soil Humidity", icon: Leaf, commandType: "SOIL_HUMIDITY" },
+    { type: SensorType.LIGHT, name: "Light Level", icon: Sun, commandType: "LIGHT" },
 ];
 
 
@@ -41,9 +41,11 @@ export default function ControlPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { sendSerialCommand, isConnected: isUsbConnected, connectedDeviceHardwareId: usbHardwareId, addLog: addUsbLog } = useUsbConnection();
   const deviceId = params.deviceId as string;
 
   const [device, setDevice] = useState<Device | null>(null);
+  const [currentDeviceHardwareId, setCurrentDeviceHardwareId] = useState<string | null>(null);
   const [settings, setSettings] = useState<DeviceSettings | null>(null);
   
   const [actuatorLoadingStates, setActuatorLoadingStates] = useState<ControlLoadingStates>({
@@ -73,6 +75,7 @@ export default function ControlPage() {
         }
         const fetchedDevice: Device = await deviceRes.json();
         setDevice(fetchedDevice);
+        setCurrentDeviceHardwareId(fetchedDevice.hardwareIdentifier); // Store hardware ID
 
         const settingsRes = await fetch(`/api/device-settings/${deviceId}?userId=${user.id}`);
         if (!settingsRes.ok) {
@@ -89,13 +92,13 @@ export default function ControlPage() {
         const specificMessage = error.message || "Could not load device details or settings.";
         toast({ title: "Error Loading Data", description: specificMessage, variant: "destructive"});
         setFetchError(specificMessage);
-        setDevice(null); setSettings(null);
+        setDevice(null); setSettings(null); setCurrentDeviceHardwareId(null);
       } finally {
         setIsPageLoading(false);
       }
-    } else if (!user && deviceId) { // User not loaded yet, but deviceId is present
-      setIsPageLoading(true); // Keep loading until user is available
-    } else if (!deviceId) { // No deviceId in params
+    } else if (!user && deviceId) { 
+      setIsPageLoading(true); 
+    } else if (!deviceId) { 
         setIsPageLoading(false);
         setFetchError("No device ID specified in the URL.");
     }
@@ -110,14 +113,17 @@ export default function ControlPage() {
       toast({ title: "Error", description: "Device or user context not available.", variant: "destructive" });
       return;
     }
-     if (!device.isActive) {
-      toast({ title: "Device Offline", description: "Cannot toggle controls for an inactive device. Device will apply change when back online.", variant: "default" });
-      // Allow toggling even if device is offline, state will be saved for next poll
+    
+    const isCurrentDeviceUsbConnected = isUsbConnected && usbHardwareId === currentDeviceHardwareId;
+    
+    if (!device.isActive && !isCurrentDeviceUsbConnected) { // Only show "Device Offline" if not USB connected for direct command
+      toast({ title: "Device Offline (Backend)", description: "Device will apply change when back online via server polling.", variant: "default" });
     }
 
     setActuatorLoadingStates(prev => ({ ...prev, [actuator]: true }));
     const newState = !currentDesiredState;
 
+    // 1. Send command to API (persists the desired state)
     try {
       const response = await fetch('/api/device-control', {
         method: 'POST',
@@ -132,12 +138,32 @@ export default function ControlPage() {
 
       const responseData = await response.json();
       if (!response.ok) {
-        throw new Error(responseData.message || `Failed to toggle ${actuator}`);
+        throw new Error(responseData.message || `Failed to toggle ${actuator} via API`);
       }
       
-      // Update local settings state optimistically
       setSettings(prev => prev ? ({ ...prev, [`desired${actuator.charAt(0).toUpperCase() + actuator.slice(1)}State`]: newState }) : null);
-      toast({ title: `${actuator.charAt(0).toUpperCase() + actuator.slice(1)} Toggled`, description: responseData.message });
+      toast({ title: `${actuator.charAt(0).toUpperCase() + actuator.slice(1)} State Updated (API)`, description: responseData.message });
+
+      // 2. If USB connected to THIS device, send direct command
+      if (isCurrentDeviceUsbConnected) {
+        let commandName = '';
+        switch(actuator) {
+          case 'light': commandName = 'set_light_state'; break;
+          case 'fan': commandName = 'set_fan_state'; break;
+          case 'irrigation': commandName = 'set_irrigation_state'; break;
+          case 'uvLight': commandName = 'set_uvlight_state'; break;
+        }
+        if (commandName) {
+          await sendSerialCommand({ command: commandName, state: newState ? "ON" : "OFF" });
+          addUsbLog(`CONTROL: Comando directo USB '${commandName}' enviado (${newState ? "ON" : "OFF"}) a ${currentDeviceHardwareId}.`);
+          toast({ title: "USB Command Sent", description: `Direct command to ${actuator} (${newState ? "ON" : "OFF"}) sent via USB.`});
+        }
+      } else if (isUsbConnected && usbHardwareId !== currentDeviceHardwareId) {
+         addUsbLog(`CONTROL WARN: USB conectado a ${usbHardwareId}, pero controlando ${currentDeviceHardwareId}. Comando directo no enviado.`);
+         toast({title:"Info", description:`USB conectado a otro dispositivo (${usbHardwareId}). Comando para ${device.name} fue enviado al servidor.`});
+      } else if (!isUsbConnected) {
+          addUsbLog(`CONTROL INFO: USB no conectado. Comando para ${currentDeviceHardwareId} enviado al servidor.`);
+      }
 
     } catch (error: any) {
       toast({ title: "Error Toggling Actuator", description: error.message, variant: "destructive" });
@@ -146,39 +172,54 @@ export default function ControlPage() {
     }
   };
 
-  const handleRequestManualReading = async (sensorType: AppSensorType) => {
-    if (!device || !user) {
-      toast({ title: "Error", description: "Device or user context not available.", variant: "destructive" });
+  const handleRequestManualReading = async (sensor: { type: AppSensorType, commandType: string }) => {
+    if (!device || !user || !currentDeviceHardwareId) {
+      toast({ title: "Error", description: "Device, user, or hardware ID context not available.", variant: "destructive" });
       return;
     }
-    if (!device.isActive) {
-      toast({ title: "Device Offline", description: "Cannot request reading for an inactive device. Request will be sent when device is back online.", variant: "default" });
-       // Allow request even if device is offline, flag will be saved for next poll
+    const isCurrentDeviceUsbConnected = isUsbConnected && usbHardwareId === currentDeviceHardwareId;
+
+    if (!device.isActive && !isCurrentDeviceUsbConnected) {
+      toast({ title: "Device Offline (Backend)", description: "Request will be queued for when device is online via server.", variant: "default" });
     }
 
-    setManualReadingLoadingStates(prev => ({ ...prev, [sensorType]: true }));
+    setManualReadingLoadingStates(prev => ({ ...prev, [sensor.type]: true }));
     try {
+      // 1. Send request to API (sets the flag for polling devices)
       const response = await fetch('/api/request-manual-reading', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           deviceId: device.serialNumber,
           userId: user.id,
-          sensorType,
+          sensorType: sensor.type,
         }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.message || `Failed to request manual reading for ${sensorType}`);
+        throw new Error(data.message || `Failed to request manual reading for ${sensor.type} via API`);
       }
       toast({
-        title: "Reading Requested",
-        description: data.message, // Use message from API
+        title: "Reading Request Queued (API)",
+        description: data.message, 
       });
+
+      // 2. If USB connected to THIS device, send direct command
+      if (isCurrentDeviceUsbConnected) {
+        await sendSerialCommand({ command: "request_sensor_reading", type: sensor.commandType });
+        addUsbLog(`CONTROL: Comando directo USB 'request_sensor_reading' (${sensor.commandType}) enviado a ${currentDeviceHardwareId}.`);
+        toast({ title: "USB Command Sent", description: `Direct request for ${sensor.name} reading sent via USB.`});
+      } else if (isUsbConnected && usbHardwareId !== currentDeviceHardwareId) {
+         addUsbLog(`CONTROL WARN: USB conectado a ${usbHardwareId}, pero solicitando lectura para ${currentDeviceHardwareId}. Comando directo no enviado.`);
+         toast({title:"Info", description:`USB conectado a otro dispositivo (${usbHardwareId}). Solicitud para ${sensor.name} de ${device.name} fue enviada al servidor.`});
+      } else if (!isUsbConnected) {
+          addUsbLog(`CONTROL INFO: USB no conectado. Solicitud para ${currentDeviceHardwareId} enviada al servidor.`);
+      }
+
     } catch (error: any) {
       toast({ title: "Error Requesting Reading", description: error.message, variant: "destructive" });
     } finally {
-      setManualReadingLoadingStates(prev => ({ ...prev, [sensorType]: false }));
+      setManualReadingLoadingStates(prev => ({ ...prev, [sensor.type]: false }));
     }
   };
 
@@ -204,7 +245,7 @@ export default function ControlPage() {
     );
   }
 
-  if (fetchError && !device) { // If there was an error AND device is null
+  if (fetchError && !device) { 
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 text-center">
         <Card className="max-w-md mx-auto mt-8">
@@ -218,7 +259,7 @@ export default function ControlPage() {
     );
   }
   
-  if (!device) { // Fallback if still no device after loading and no specific fetchError shown
+  if (!device) { 
       return (
       <div className="container mx-auto py-8 px-4 md:px-6 text-center">
         <Card className="max-w-md mx-auto mt-8">
@@ -228,12 +269,14 @@ export default function ControlPage() {
       </div>
     );
   }
+  
+  const isCurrentDeviceUsbConnected = isUsbConnected && usbHardwareId === currentDeviceHardwareId;
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6">
       <PageHeader
         title={`Device Control: ${device.name}`}
-        description={`Manually operate accessories and request sensor readings for ${device.serialNumber}.`}
+        description={`Manually operate accessories and request sensor readings for ${device.serialNumber} (HWID: ${currentDeviceHardwareId || 'N/A'}). USB: ${isCurrentDeviceUsbConnected ? 'Connected to this device' : isUsbConnected ? `Connected to other (${usbHardwareId})` : 'Not connected'}`}
         action={
           <Button onClick={() => router.push('/dashboard')} variant="outline">
             <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
@@ -241,15 +284,25 @@ export default function ControlPage() {
         }
       />
       
-      {!device.isActive && (
+      {!device.isActive && !isCurrentDeviceUsbConnected && ( // Show "Device Inactive" only if not directly controllable via USB
          <Alert variant="default" className="mb-6 bg-yellow-50 border-yellow-400 text-yellow-700 dark:bg-yellow-900/30 dark:border-yellow-700 dark:text-yellow-300">
           <AlertTriangle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
-          <UiAlertTitle>Device Currently Inactive</UiAlertTitle>
+          <UiAlertTitle>Device Currently Inactive (Backend)</UiAlertTitle>
           <AlertDescription>
-            This device is currently marked as inactive. Control commands will be saved and applied when the device next connects. Manual readings can be requested but will only be processed when the device is active.
+            This device is currently marked as inactive on the server. Commands will be queued and applied when the device next connects and polls the server.
           </AlertDescription>
         </Alert>
       )}
+       {isCurrentDeviceUsbConnected && !device.isActive && (
+         <Alert variant="default" className="mb-6 bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
+            <Zap className="h-4 w-4 !text-blue-600 dark:!text-blue-400" />
+            <UiAlertTitle>Device Connected via USB</UiAlertTitle>
+            <AlertDescription>
+                Direct commands can be sent via USB even if the backend marks the device as inactive. Backend status will update when the device syncs.
+            </AlertDescription>
+         </Alert>
+      )}
+
 
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground/90">Actuator Controls</h2>
@@ -280,10 +333,11 @@ export default function ControlPage() {
                     </CardHeader>
                     <CardContent>
                         <Button 
-                            onClick={() => handleRequestManualReading(sensor.type)} 
-                            disabled={manualReadingLoadingStates[sensor.type] /* || !device.isActive - allow request even if inactive */}
+                            onClick={() => handleRequestManualReading(sensor)} 
+                            disabled={manualReadingLoadingStates[sensor.type] || (!isCurrentDeviceUsbConnected && !device.isActive) }
                             className="w-full"
                             variant="outline"
+                            title={(!isCurrentDeviceUsbConnected && !device.isActive) ? "Device offline and not connected via USB" : `Request ${sensor.name} reading`}
                         >
                             {manualReadingLoadingStates[sensor.type] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BarChartBig className="mr-2 h-4 w-4" />}
                             Request Reading
@@ -292,7 +346,7 @@ export default function ControlPage() {
                  </Card>
             ))}
         </div>
-        <p className="text-sm text-muted-foreground mt-3">Note: Requested readings will appear on the Dashboard after the device processes the request and sends the data.</p>
+        <p className="text-sm text-muted-foreground mt-3">Note: Requested readings will appear on the Dashboard after the device processes the request and sends the data (either via USB or next server poll).</p>
       </section>
       
       {settings && (
@@ -310,3 +364,4 @@ export default function ControlPage() {
     </div>
   );
 }
+
