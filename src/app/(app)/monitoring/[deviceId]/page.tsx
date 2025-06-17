@@ -60,9 +60,14 @@ export default function MonitoringPage() {
   const fetchAllHistoricalData = useCallback(async (currentDeviceId: string, isInitialLoad = false) => {
     if (!user || !currentDeviceId) return;
     
-    if (isInitialLoad || !isLoadingHistorical) { // Prevent multiple simultaneous loads unless initial
-      setIsLoadingHistorical(true);
+    // The check for !isLoadingHistorical is to prevent re-entrant calls if polling triggers while a fetch is in progress.
+    // isInitialLoad bypasses this for the very first load.
+    if (!isInitialLoad && isLoadingHistorical) {
+        console.log("[MonitoringPage] fetchAllHistoricalData skipped: already loading historical data.");
+        return;
     }
+
+    setIsLoadingHistorical(true);
 
     const newHistoricalDataPromises = SENSOR_TYPES_FOR_DISPLAY.map(type =>
       fetchHistoricalDataForSensor(currentDeviceId, type).then(data => ({ type, data }))
@@ -70,35 +75,42 @@ export default function MonitoringPage() {
 
     const results = await Promise.all(newHistoricalDataPromises);
     
-    const updatedData: { [key in SensorType]?: SensorData[] } = {};
-    let hasAnyError = false;
-    results.forEach(result => {
-      if (result.data) {
-        updatedData[result.type] = result.data;
-      } else {
-        updatedData[result.type] = historicalData[result.type] || []; // Keep old data on error
-        hasAnyError = true;
-      }
+    setHistoricalData(prevHistoricalData => {
+        const updatedData = { ...prevHistoricalData }; // Start with a copy of previous data
+        let hasAnyError = false;
+        results.forEach(result => {
+          if (result.data) { // If new data is successfully fetched
+            updatedData[result.type] = result.data;
+          } else { // If fetch failed for this sensor type
+            // Keep existing data if available (already in updatedData from prevHistoricalData copy), otherwise initialize to empty array
+            if (!updatedData[result.type]) { 
+                updatedData[result.type] = [];
+            }
+            hasAnyError = true;
+          }
+        });
+        return updatedData;
     });
     
-    setHistoricalData(updatedData);
     setIsLoadingHistorical(false);
 
-    if (hasAnyError && !isInitialLoad) { // Avoid toast on initial load if some sensors fail
+    if (hasAnyError && !isInitialLoad) {
       // toast({ title: "Data Update", description: "Some sensor history might not have updated.", variant: "default" });
     }
-  }, [user, fetchHistoricalDataForSensor, historicalData, isLoadingHistorical]);
+  }, [user, fetchHistoricalDataForSensor, toast]); // Removed historicalData and isLoadingHistorical
 
 
   const fetchInitialDeviceAndData = useCallback(async () => {
     if (!deviceId || !user) {
-      setIsLoadingDevice(true);
+      // If called before deviceId or user is available, ensure loading state is true or appropriately managed.
+      // This function will be recalled if deviceId or user changes.
+      setIsLoadingDevice(true); 
       return;
     }
     
     setIsLoadingDevice(true);
     setFetchError(null);
-    setHistoricalData({}); 
+    setHistoricalData({}); // Reset historical data for the new device
 
     try {
       const deviceRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
@@ -111,7 +123,7 @@ export default function MonitoringPage() {
       }
       const fetchedDevice: Device = await deviceRes.json();
       setDevice(fetchedDevice);
-      await fetchAllHistoricalData(fetchedDevice.serialNumber, true);
+      await fetchAllHistoricalData(fetchedDevice.serialNumber, true); // isInitialLoad = true
 
     } catch (error: any) {
       console.error("[MonitoringPage] Error in fetchInitialDeviceAndData:", error);
@@ -126,14 +138,14 @@ export default function MonitoringPage() {
 
   useEffect(() => {
     fetchInitialDeviceAndData();
-  }, [fetchInitialDeviceAndData]);
+  }, [fetchInitialDeviceAndData]); // Runs when fetchInitialDeviceAndData reference changes (e.g. deviceId or user changes)
 
   useEffect(() => {
     if (device && device.serialNumber && !isLoadingDevice && !fetchError) {
       pollingIntervalRef.current = setInterval(() => {
-        if (!document.hidden) { // Only poll if tab is visible
+        if (!document.hidden && !isLoadingHistorical) { // Only poll if tab is visible AND not already loading
             console.log(`[MonitoringPage] Polling for historical data for device ${device.serialNumber}`);
-            fetchAllHistoricalData(device.serialNumber);
+            fetchAllHistoricalData(device.serialNumber, false); // isInitialLoad = false
         }
       }, POLLING_INTERVAL_MS);
 
@@ -147,12 +159,12 @@ export default function MonitoringPage() {
              clearInterval(pollingIntervalRef.current);
         }
     }
-  }, [device, fetchAllHistoricalData, isLoadingDevice, fetchError]);
+  }, [device, fetchAllHistoricalData, isLoadingDevice, fetchError, isLoadingHistorical]); // Added isLoadingHistorical
   
   const handleManualRefresh = () => {
       if (device && device.serialNumber && !isLoadingHistorical) {
           toast({ title: "Refreshing Data...", description: `Fetching latest history for ${device.name}.` });
-          fetchAllHistoricalData(device.serialNumber);
+          fetchAllHistoricalData(device.serialNumber, false); // isInitialLoad = false
       }
   };
 
@@ -208,12 +220,14 @@ export default function MonitoringPage() {
         }
       />
 
+      {/* Show overall skeleton if initial historical data is loading AND no data is present yet */}
       {isLoadingHistorical && Object.keys(historicalData).length === 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
             {SENSOR_TYPES_FOR_DISPLAY.map(type => ( <Skeleton key={type} className="h-[400px] w-full" /> ))}
           </div>
       )}
 
+      {/* Show "No data" message if not loading, device is loaded, but all historical data arrays are empty/undefined */}
       {!isLoadingHistorical && !isLoadingDevice && Object.values(historicalData).every(arr => !arr || arr.length === 0) && !fetchError && (
          <Card className="lg:col-span-2 mt-6">
             <CardHeader><CardTitle>No Historical Data</CardTitle><CardDescription>No historical data found for this device yet, or an error occurred fetching it.</CardDescription></CardHeader>
@@ -221,9 +235,11 @@ export default function MonitoringPage() {
         </Card>
       )}
       
-      {(Object.keys(historicalData).length > 0 || isLoadingHistorical) && ( // Render charts if there's data OR if we are loading (to show individual skeletons)
+      {/* Render charts if there's some data OR if we are in subsequent loading states (not initial full skeleton) */}
+      {(Object.values(historicalData).some(arr => arr && arr.length > 0) || (isLoadingHistorical && Object.keys(historicalData).length > 0) ) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {SENSOR_TYPES_FOR_DISPLAY.map(type => (
+            // Show skeleton for individual chart if it's loading and has no data yet, otherwise show chart
             (isLoadingHistorical && (!historicalData[type] || historicalData[type]?.length === 0)) ? 
             <Skeleton key={`${type}-loading`} className="h-[400px] w-full" /> :
             <DataChart key={type} sensorData={historicalData[type] || []} sensorType={type} />
