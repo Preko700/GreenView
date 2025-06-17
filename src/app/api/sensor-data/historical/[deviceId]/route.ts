@@ -47,11 +47,11 @@ export async function GET(
     }
 
     const historicalReadings: SensorData[] = await db.all(
-      \`SELECT id, deviceId, type, value, unit, timestamp 
+      `SELECT id, deviceId, type, value, unit, timestamp 
        FROM sensor_readings 
        WHERE deviceId = ? AND type = ? 
        ORDER BY timestamp DESC 
-       LIMIT ?\`,
+       LIMIT ?`,
       deviceId,
       sensorTypeParam,
       limit
@@ -62,7 +62,7 @@ export async function GET(
     return NextResponse.json(orderedReadings, { status: 200 });
 
   } catch (error: any) {
-    console.error(\`Error fetching historical sensor data for device \${deviceId}, type \${sensorTypeParam}:\`, error);
+    console.error(`Error fetching historical sensor data for device ${deviceId}, type ${sensorTypeParam}:`, error);
     return NextResponse.json({ message: 'Failed to fetch historical sensor data', error: error.message }, { status: 500 });
   }
 }
