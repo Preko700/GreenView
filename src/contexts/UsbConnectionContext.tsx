@@ -70,7 +70,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     addLog("DISC: Iniciando proceso de desconexión...");
     if (!port && !writer && !readableStreamClosedRef.current && !isConnected && !isConnecting && !disconnectInitiatedRef.current) {
         addLog("DISC: Ya desconectado o nunca conectado/intentado, nada que hacer.");
-        disconnectInitiatedRef.current = false; // Reset flag if it was somehow true
+        disconnectInitiatedRef.current = false; 
         return;
     }
     
@@ -80,27 +80,20 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
 
     if (readableStreamClosedRef.current) {
       try {
-        // It's crucial that cancel() is awaited.
         await readableStreamClosedRef.current.cancel();
         addLog("DISC: Lector del TextDecoderStream cancelado.");
       } catch (error: any) {
         addLog(`DISC WARN: Error durante cancelación del lector: ${error.message}`);
       }
-      // Ensure readableStreamClosedRef is nullified only after successful cancel or if it was already null
       readableStreamClosedRef.current = null;
     }
     
     const currentWriter = writer; 
     if (currentWriter) {
       try {
-        // Ensure writer lock is released. close() should do this, but being explicit can help.
-        // However, directly calling releaseLock if the stream is about to be closed by the writer
-        // itself might be redundant or even problematic depending on the state.
-        // writer.close() is generally sufficient.
         await currentWriter.close();
         addLog("DISC: Escritor cerrado.");
       } catch (error: any) {
-        // Log writer error but continue disconnection
         addLog(`DISC WARN: Error manejando escritor: ${error.message}`);
       }
       setWriter(null); 
@@ -109,9 +102,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     const currentPort = port; 
     if (currentPort) {
       try {
-        // Ensure all event listeners are removed before closing the port
-        // This is a placeholder, actual removal depends on how they were added
-        // currentPort.removeEventListener('disconnect', handleExternalDisconnect); // Example
+        // currentPort.removeEventListener('disconnect', handleExternalDisconnect); // Ya se maneja con ref
         await currentPort.close();
         addLog("DISC: Puerto cerrado exitosamente.");
         if (showToastUserInitiated) {
@@ -129,9 +120,9 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     
     setPortInfo(null);
     setConnectedDeviceHardwareId(null); 
-    setIsConnected(false); // Set isConnected to false *after* port is confirmed closed or errors
-    setIsConnecting(false); // Also reset isConnecting
-    disconnectInitiatedRef.current = false; // Reset the flag *after* completion
+    setIsConnected(false); 
+    setIsConnecting(false); 
+    disconnectInitiatedRef.current = false; 
     addLog("DISC: Estado de conexión reseteado post-desconexión.");
   }, [addLog, toast, port, writer, isConnected, isConnecting]); 
 
@@ -214,29 +205,27 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Logic for handling hardwareId and setting connectedDeviceHardwareId
     if (data.hardwareId && !connectedDeviceHardwareId) {
-        // This is the first time we're identifying a device in this session
-        if (data.type === "hello_arduino") {
-            addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId} (hello_arduino): ${jsonString}`);
-        } else {
-            addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId} (otro tipo): ${jsonString}`);
-        }
+        addLog(`PARSE: Datos JSON para nuevo ${data.hardwareId} (${data.type || 'tipo desconocido'}): ${jsonString}`);
         setConnectedDeviceHardwareId(data.hardwareId);
     } else if (data.hardwareId && data.hardwareId !== connectedDeviceHardwareId && connectedDeviceHardwareId) {
         addLog(`PARSE WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${connectedDeviceHardwareId}). Datos ignorados.`);
         return; 
     } else if (data.hardwareId && data.hardwareId === connectedDeviceHardwareId) {
-        // Known device, no need to log a specific "PARSE:" message unless debugging data itself
+        // Known device, normal operation
     } else if (!data.hardwareId && connectedDeviceHardwareId) {
         addLog(`PARSE WARN: Mensaje JSON sin hardwareId explícito. Usando el conectado (${connectedDeviceHardwareId}). JSON: ${jsonString}`);
-        data.hardwareId = connectedDeviceHardwareId; // Impute if missing and we have a connected one
+        data.hardwareId = connectedDeviceHardwareId;
     } else if (!data.hardwareId && !connectedDeviceHardwareId) {
         addLog(`PARSE WARN: Sin hardwareId conectado y mensaje sin ID. Imposible procesar. JSON: ${jsonString}`);
         return;
     }
 
+    // Message type processing
     if (data.type === "hello_arduino") {
       addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId}`);
+      // connectedDeviceHardwareId is already set by the logic above if this is the first hello
     } else if (data.type === "ack_interval_set") {
       addLog(`MSG: ACK de intervalo recibido de ${data.hardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
     } else if (data.type === "ack_photo_interval_set") {
@@ -254,7 +243,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         const response = await fetch('/api/ingest-sensor-data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data), // Send the original data object
+          body: JSON.stringify(data),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
@@ -270,8 +259,8 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
 
   const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
     addLog("RL: Preparando para iniciar bucle de lectura...");
-    textDecoder.current = new TextDecoderStream(); // Fresh decoder for each loop start
-    lineBufferRef.current = ''; // Clear buffer at the start of each loop
+    textDecoder.current = new TextDecoderStream(); 
+    lineBufferRef.current = ''; 
     
     const readableStream = currentPortInstance.readable.pipeThrough(textDecoder.current);
     readableStreamClosedRef.current = readableStream.getReader();
@@ -285,9 +274,9 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
           break;
         }
         if (value) {
-          // addLog(`RL: Datos RAW recibidos: "${value.replace(/\n/g, '\\n')}"`);
+          // addLog(`RL: Datos RAW recibidos: "${value.replace(/\n/g, '\\\\n')}"`);
           lineBufferRef.current += value;
-          // addLog(`RL: Buffer actual: "${lineBufferRef.current.replace(/\n/g, '\\n')}"`);
+          // addLog(`RL: Buffer actual: "${lineBufferRef.current.replace(/\n/g, '\\\\n')}"`);
           
           let newlineIndex;
           while ((newlineIndex = lineBufferRef.current.indexOf('\n')) >= 0) {
@@ -295,23 +284,22 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
             lineBufferRef.current = lineBufferRef.current.substring(newlineIndex + 1);
             
             if (line) {
-              // If we haven't identified the device yet (no hardwareId known),
-              // be more stringent. Expect the first valid message to be a JSON object.
+              // Filter initial corrupted/fragmented data before hello_arduino
               if (!connectedDeviceHardwareId && (!line.startsWith('{') || !line.endsWith('}'))) {
                 addLog(`RL: Potenciales datos iniciales corruptos (esperando JSON), descartando: "${line}"`);
-                continue; // Skip this line and wait for a proper JSON object
+                continue; 
               }
               // addLog(`RL: Línea extraída para procesar: "${line}"`);
               await processReceivedData(line);
             } else {
               // addLog("RL: Línea extraída vacía, ignorando.");
             }
-            // addLog(`RL: Buffer restante post-extracción: "${lineBufferRef.current.replace(/\n/g, '\\n')}"`);
+            // addLog(`RL: Buffer restante post-extracción: "${lineBufferRef.current.replace(/\n/g, '\\\\n')}"`);
           }
         }
       }
     } catch (error: any) {
-      if (!disconnectInitiatedRef.current && error.name !== 'AbortError' && error.name !== 'TypeError') { // Added TypeError to ignore as it might be part of normal disconnect
+      if (!disconnectInitiatedRef.current && error.name !== 'AbortError' && error.name !== 'TypeError') { 
         addLog(`RL ERR: Error en el bucle de lectura: ${error.name} - ${error.message}`);
         console.error("RL ERR: Read loop error:", error);
       } else if (error.name === 'TypeError' && !disconnectInitiatedRef.current) {
@@ -320,38 +308,32 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     } finally {
       addLog("RL: Ejecutando bloque finally del bucle de lectura.");
       if (readableStreamClosedRef.current) {
-        // No es necesario llamar a releaseLock() explícitamente si cancel() lo hace, 
-        // o si el stream se cerró normalmente.
-        // Releasing lock here might be redundant if cancel was called or stream ended.
         readableStreamClosedRef.current = null; 
         addLog("RL: Lector del TextDecoderStream nullified en finally.");
       }
       addLog("RL: Bucle de lectura detenido completamente (finally ejecutado).");
-      // Only auto-disconnect if not initiated by user/external event and still marked as connected
       if (!disconnectInitiatedRef.current && isConnected) {
          addLog("RL: Desconexión inesperada detectada en finally. Intentando limpieza.");
-         internalDisconnectPortRef.current(false); // Attempt a cleanup if read loop ended unexpectedly
+         internalDisconnectPortRef.current(false); 
       }
     }
   }, [addLog, processReceivedData, connectedDeviceHardwareId, isConnected]);
 
   const connectPort = useCallback(async () => {
     disconnectInitiatedRef.current = false; 
-    lineBufferRef.current = ''; // Clean buffer at the very start of connection attempt
-    keepReading.current = true; 
+    lineBufferRef.current = ''; 
 
     addLog("CONN: Intentando conectar...");
     if (port || writer) {
         addLog("CONN WARN: Puerto/escritor anterior existente. Realizando desconexión silenciosa primero.");
         await internalDisconnectPortRef.current(false); 
-         // Brief pause to ensure resources are released system-wise
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 100)); // Pause for system resource release
     }
     
     if (typeof window === 'undefined' || !("serial" in navigator)) {
       addLog("CONN ERR: API Web Serial no soportada o no es entorno de cliente.");
       toast({ title: "Error de Navegador", description: "Tu navegador no soporta la API Web Serial.", variant: "destructive" });
-      setIsConnecting(false); // Ensure this is reset
+      setIsConnecting(false); 
       return;
     }
     if (isConnecting) { 
@@ -384,7 +366,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
 
       selectedPort.addEventListener('disconnect', () => {
         addLog(`EVT: Puerto ${portLabel} desconectado externamente.`);
-        if (!disconnectInitiatedRef.current) { // Only toast if not already disconnecting
+        if (!disconnectInitiatedRef.current) { 
             toast({ title: "Dispositivo Desconectado", description: `El dispositivo ${portLabel} se ha desconectado.`, variant: "destructive"});
             internalDisconnectPortRef.current(false); 
         }
@@ -398,9 +380,8 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         console.error("CONN ERR: Error opening/configuring port:", error);
         toast({ title: "Error de Conexión", description: `No se pudo conectar: ${error.message}`, variant: "destructive" });
       }
-      // Full cleanup if any part of connection fails
-      await _internalDisconnectPort(false); // Ensures all states (port, writer, isConnected, connectedDeviceHardwareId) are reset
-      setPort(null); setWriter(null); setIsConnected(false); setConnectedDeviceHardwareId(null); // Redundant but safe
+      await _internalDisconnectPort(false);
+      setPort(null); setWriter(null); setIsConnected(false); setConnectedDeviceHardwareId(null); 
     } finally {
       setIsConnecting(false); 
       addLog("CONN: Proceso de conexión finalizado (bloque finally).");
@@ -421,7 +402,6 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       if (reason) addLog(`SYNC_EFFECT: Condiciones NO cumplidas. Razón: ${reason}`);
     }
   }, [connectedDeviceHardwareId, writer, isConnected, user, fetchAndSyncDeviceConfiguration, addLog]);
-
 
   const resyncConfiguration = useCallback(async (hardwareId: string) => {
     addLog(`RESYNC: Solicitado para ${hardwareId}. writer: ${!!writer}, connected: ${isConnected}, user: ${!!user}`);
@@ -453,7 +433,6 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         window.removeEventListener('beforeunload', handleBeforeUnload);
       }
-      // Cleanup on component unmount
       if (port) {
         addLog("UNMOUNT: Componente desmontado, desconectando puerto...");
         internalDisconnectPortRef.current(false);
