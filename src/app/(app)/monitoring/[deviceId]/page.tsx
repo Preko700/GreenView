@@ -66,6 +66,7 @@ export default function MonitoringPage() {
     }
 
     setIsLoadingHistorical(true);
+    let hasAnyError = false; // Declare hasAnyError
 
     const newHistoricalDataPromises = SENSOR_TYPES_FOR_DISPLAY.map(type =>
       fetchHistoricalDataForSensor(currentDeviceId, type).then(data => ({ type, data }))
@@ -75,15 +76,14 @@ export default function MonitoringPage() {
     
     setHistoricalData(prevHistoricalData => {
         const updatedData = { ...prevHistoricalData };
-        let hasAnyError = false;
         results.forEach(result => {
           if (result.data) { 
             updatedData[result.type] = result.data;
           } else { 
             if (!updatedData[result.type]) { 
-                updatedData[result.type] = [];
+                updatedData[result.type] = []; // Ensure array exists even if fetch failed
             }
-            hasAnyError = true;
+            hasAnyError = true; // Set hasAnyError if a fetch failed
           }
         });
         return updatedData;
@@ -94,11 +94,12 @@ export default function MonitoringPage() {
     if (hasAnyError && !isInitialLoad) {
       // toast({ title: "Data Update", description: "Some sensor history might not have updated.", variant: "default" });
     }
-  }, [user, fetchHistoricalDataForSensor, isLoadingHistorical]);
+  }, [user, fetchHistoricalDataForSensor]); // Removed isLoadingHistorical from deps
 
 
   const fetchInitialDeviceAndData = useCallback(async () => {
     if (!deviceId || !user) {
+      // This function will be recalled if deviceId or user changes.
       setIsLoadingDevice(true); 
       return;
     }
