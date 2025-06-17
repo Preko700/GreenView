@@ -5,15 +5,25 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ImageGrid } from '@/components/media/ImageGrid';
-// getMockDeviceImages is removed as we are managing images in state
 import type { Device, DeviceImage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Camera, Upload, Loader2, AlertTriangle, Film } from 'lucide-react';
+import { ArrowLeft, Camera, Upload, Loader2, AlertTriangle, Film, PlayCircle, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle as UiAlertTitle } from '@/components/ui/alert'; // For device inactive warning
+import { Alert, AlertDescription, AlertTitle as UiAlertTitle } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import GIFEncoder from 'gifencoder';
+
 
 export default function MediaPage() {
   const params = useParams();
@@ -29,6 +39,11 @@ export default function MediaPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isGeneratingTimelapse, setIsGeneratingTimelapse] = useState(false);
+  const [timelapseUrl, setTimelapseUrl] = useState<string | null>(null);
+  const [timelapseError, setTimelapseError] = useState<string | null>(null);
+  const [showTimelapseDialog, setShowTimelapseDialog] = useState(false);
 
   const fetchDeviceData = useCallback(async () => {
     if (deviceId && user) {
@@ -47,12 +62,6 @@ export default function MediaPage() {
         }
         const fetchedDevice: Device = await res.json();
         setDevice(fetchedDevice);
-        // Initialize with some mock images or an empty array if no backend for images yet
-        // For now, let's start with a few placeholders if desired, or empty.
-        // If you had mockDeviceImages['GH-001'], you could use that:
-        // const foundImages = mockDeviceImages[deviceId] || [];
-        // setImages(foundImages);
-        // For now, start empty and let user upload or "capture"
         setImages([]); 
         
       } catch (error: any) {
@@ -79,18 +88,15 @@ export default function MediaPage() {
 
   const handleSimulatedCaptureImage = async () => {
     if (!device) return;
-    // if (!device.isActive) { // We can allow "capturing" placeholders even if offline
-    //   toast({ title: "Device Offline", description: "Simulating capture for an inactive device.", variant: "default" });
-    // }
     setIsCapturing(true);
     await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
     const newImage: DeviceImage = {
       id: `simcap-${Date.now()}`,
       deviceId: deviceId,
-      imageUrl: `https://placehold.co/600x400.png?text=SimCapture-${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      imageUrl: `https://placehold.co/600x400.png?text=SimCap-${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       dataAiHint: "simulated capture",
       timestamp: Date.now(),
-      isManualCapture: true, // or a new flag like 'isSimulatedCapture'
+      isManualCapture: true, 
       source: 'capture',
     };
     setImages(prev => [newImage, ...prev].sort((a,b) => b.timestamp - a.timestamp));
@@ -110,9 +116,7 @@ export default function MediaPage() {
         toast({ title: "Invalid File", description: "Please select an image file.", variant: "destructive" });
         return;
     }
-    // Reset file input to allow uploading the same file again if needed
     if (fileInputRef.current) fileInputRef.current.value = "";
-
 
     setIsUploading(true);
     try {
@@ -121,10 +125,10 @@ export default function MediaPage() {
         const newImage: DeviceImage = {
           id: `upload-${Date.now()}-${file.name}`,
           deviceId: deviceId,
-          imageUrl: reader.result as string, // Data URL
-          dataAiHint: "uploaded image", // You might want to derive hints from filename or use AI later
+          imageUrl: reader.result as string, 
+          dataAiHint: "uploaded image", 
           timestamp: Date.now(),
-          isManualCapture: false, // Or true, depending on definition. Let's say false for uploads.
+          isManualCapture: false, 
           source: 'upload',
         };
         setImages(prev => [newImage, ...prev].sort((a,b) => b.timestamp - a.timestamp));
@@ -143,13 +147,100 @@ export default function MediaPage() {
     }
   };
 
+  const handleGenerateTimelapse = async () => {
+    if (!images.length) {
+      toast({ title: "No Images", description: "Please add images to the gallery first.", variant: "destructive" });
+      return;
+    }
+
+    setIsGeneratingTimelapse(true);
+    setTimelapseUrl(null);
+    setTimelapseError(null);
+    setShowTimelapseDialog(true);
+
+    try {
+      const sortedImages = [...images].sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Determine dimensions from the first image, with a max width/height for performance
+      const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = sortedImages[0].imageUrl;
+      });
+
+      const MAX_DIMENSION = 480; // Max width/height for timelapse frames
+      let frameWidth = firstImageElement.naturalWidth;
+      let frameHeight = firstImageElement.naturalHeight;
+
+      if (frameWidth > MAX_DIMENSION || frameHeight > MAX_DIMENSION) {
+        if (frameWidth > frameHeight) {
+          frameHeight = Math.round(frameHeight * (MAX_DIMENSION / frameWidth));
+          frameWidth = MAX_DIMENSION;
+        } else {
+          frameWidth = Math.round(frameWidth * (MAX_DIMENSION / frameHeight));
+          frameHeight = MAX_DIMENSION;
+        }
+      }
+      
+      const encoder = new GIFEncoder(frameWidth, frameHeight);
+      encoder.start();
+      encoder.setRepeat(0); // 0 for loop indefinitely
+      encoder.setDelay(300); // ms per frame (e.g., ~3.3 FPS)
+      encoder.setQuality(15); // 1-30, lower is better quality. 10-15 is usually a good balance.
+
+      const canvas = document.createElement('canvas');
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error("Could not get canvas context for timelapse generation.");
+      }
+      
+      for (const deviceImage of sortedImages) {
+        await new Promise<void>((resolveFrame, rejectFrame) => {
+          const img = new Image();
+          // For cross-origin images if not data URLs (e.g. from placehold.co), this might be needed
+          // but since placehold.co allows CORS, and uploads are data URLs, it might not be strictly necessary here.
+          // img.crossOrigin = "Anonymous"; 
+          img.onload = () => {
+            ctx.clearRect(0, 0, frameWidth, frameHeight); // Clear canvas
+            ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
+            encoder.addFrame(ctx);
+            resolveFrame();
+          };
+          img.onerror = (err) => {
+            console.error("Error loading image for timelapse frame:", deviceImage.imageUrl, err);
+            // Optionally skip frame or reject
+            resolveFrame(); // Skip problematic frame
+          };
+          img.src = deviceImage.imageUrl;
+        });
+      }
+
+      encoder.finish();
+      const buffer = encoder.out.getData();
+      const blob = new Blob([new Uint8Array(buffer)], { type: 'image/gif' });
+      const url = URL.createObjectURL(blob);
+      setTimelapseUrl(url);
+
+    } catch (error: any) {
+      console.error("Error generating timelapse:", error);
+      setTimelapseError(error.message || "An unknown error occurred while generating the timelapse.");
+      toast({ title: "Timelapse Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsGeneratingTimelapse(false);
+    }
+  };
+
 
   if (isPageLoading) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 space-y-6">
         <div className="flex justify-between items-center">
             <Skeleton className="h-10 w-3/5" />
-            <div className="flex space-x-2"> <Skeleton className="h-10 w-32" /> <Skeleton className="h-10 w-32" /></div>
+            <div className="flex space-x-2"> <Skeleton className="h-10 w-32" /> <Skeleton className="h-10 w-32" /> <Skeleton className="h-10 w-40" /></div>
         </div>
          <Skeleton className="h-6 w-2/5" />
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -188,16 +279,20 @@ export default function MediaPage() {
     <div className="container mx-auto py-8 px-4 md:px-6">
       <PageHeader
         title={`Media Gallery: ${device.name}`}
-        description={`View and manage images for ${device.serialNumber}. Uploaded images are stored client-side.`}
+        description={`View images for ${device.serialNumber}. Upload or simulate captures. Generate a timelapse.`}
         action={
           <div className="flex items-center space-x-2">
-            <Button onClick={handleSimulatedCaptureImage} disabled={isCapturing || isUploading} variant="outline">
+            <Button onClick={handleSimulatedCaptureImage} disabled={isCapturing || isUploading || isGeneratingTimelapse} variant="outline">
               {isCapturing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
               Simulate Capture
             </Button>
-            <Button onClick={handleTriggerUpload} disabled={isUploading || isCapturing} variant="outline">
+            <Button onClick={handleTriggerUpload} disabled={isUploading || isCapturing || isGeneratingTimelapse} variant="outline">
               {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Upload Image
+            </Button>
+            <Button onClick={handleGenerateTimelapse} disabled={isGeneratingTimelapse || images.length < 2} variant="default">
+              {isGeneratingTimelapse ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
+              Generate Timelapse
             </Button>
             <input
               type="file"
@@ -205,23 +300,70 @@ export default function MediaPage() {
               onChange={handleImageUpload}
               accept="image/*"
               className="hidden"
-              disabled={isUploading || isCapturing}
+              disabled={isUploading || isCapturing || isGeneratingTimelapse}
             />
           </div>
         }
       />
       
-      {!device.isActive && ( // You might want to keep this or adjust logic if uploads should be disabled for inactive devices.
+      {!device.isActive && (
         <Alert variant="default" className="mb-6 bg-yellow-50 border-yellow-400 text-yellow-700 dark:bg-yellow-900/30 dark:border-yellow-700 dark:text-yellow-300">
           <AlertTriangle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
           <UiAlertTitle>Device Currently Inactive</UiAlertTitle>
           <AlertDescription>
-            This device is currently marked as inactive. Simulated captures are still possible. Uploaded images are managed locally in your browser.
+            This device is currently marked as inactive. Simulated captures and uploads are still possible.
           </AlertDescription>
         </Alert>
        )}
 
       <ImageGrid images={images} />
+
+      <Dialog open={showTimelapseDialog} onOpenChange={setShowTimelapseDialog}>
+        <DialogContent className="sm:max-w-md md:max-w-lg lg:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Timelapse Preview</DialogTitle>
+            <DialogDescription>
+              {isGeneratingTimelapse && "Generating your timelapse, please wait..."}
+              {timelapseUrl && "Your timelapse is ready!"}
+              {timelapseError && "Failed to generate timelapse."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="my-4 flex items-center justify-center">
+            {isGeneratingTimelapse && <Loader2 className="h-16 w-16 animate-spin text-primary" />}
+            {timelapseUrl && !isGeneratingTimelapse && (
+              <Image 
+                src={timelapseUrl} 
+                alt="Generated Timelapse" 
+                width={480} 
+                height={360} 
+                className="rounded-md border" 
+                unoptimized 
+              />
+            )}
+            {timelapseError && !isGeneratingTimelapse && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <UiAlertTitle>Error</UiAlertTitle>
+                <AlertDescription>{timelapseError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Close
+              </Button>
+            </DialogClose>
+            {timelapseUrl && !isGeneratingTimelapse && (
+              <Button asChild>
+                <a href={timelapseUrl} download={`timelapse-${deviceId}-${Date.now()}.gif`}>
+                  <Download className="mr-2 h-4 w-4" /> Download GIF
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
