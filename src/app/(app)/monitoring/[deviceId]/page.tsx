@@ -60,8 +60,6 @@ export default function MonitoringPage() {
   const fetchAllHistoricalData = useCallback(async (currentDeviceId: string, isInitialLoad = false) => {
     if (!user || !currentDeviceId) return;
     
-    // The check for !isLoadingHistorical is to prevent re-entrant calls if polling triggers while a fetch is in progress.
-    // isInitialLoad bypasses this for the very first load.
     if (!isInitialLoad && isLoadingHistorical) {
         console.log("[MonitoringPage] fetchAllHistoricalData skipped: already loading historical data.");
         return;
@@ -76,13 +74,12 @@ export default function MonitoringPage() {
     const results = await Promise.all(newHistoricalDataPromises);
     
     setHistoricalData(prevHistoricalData => {
-        const updatedData = { ...prevHistoricalData }; // Start with a copy of previous data
+        const updatedData = { ...prevHistoricalData };
         let hasAnyError = false;
         results.forEach(result => {
-          if (result.data) { // If new data is successfully fetched
+          if (result.data) { 
             updatedData[result.type] = result.data;
-          } else { // If fetch failed for this sensor type
-            // Keep existing data if available (already in updatedData from prevHistoricalData copy), otherwise initialize to empty array
+          } else { 
             if (!updatedData[result.type]) { 
                 updatedData[result.type] = [];
             }
@@ -97,33 +94,40 @@ export default function MonitoringPage() {
     if (hasAnyError && !isInitialLoad) {
       // toast({ title: "Data Update", description: "Some sensor history might not have updated.", variant: "default" });
     }
-  }, [user, fetchHistoricalDataForSensor, toast]); // Removed historicalData and isLoadingHistorical
+  }, [user, fetchHistoricalDataForSensor, isLoadingHistorical]);
 
 
   const fetchInitialDeviceAndData = useCallback(async () => {
     if (!deviceId || !user) {
-      // If called before deviceId or user is available, ensure loading state is true or appropriately managed.
-      // This function will be recalled if deviceId or user changes.
       setIsLoadingDevice(true); 
       return;
     }
     
     setIsLoadingDevice(true);
     setFetchError(null);
-    setHistoricalData({}); // Reset historical data for the new device
+    setHistoricalData({}); 
 
     try {
       const deviceRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
       if (!deviceRes.ok) {
-        let errorMessage = `Failed to fetch device. Status: ${deviceRes.status}`;
-        if (deviceRes.status === 404) errorMessage = "Device not found or you're not authorized.";
-        else try { const errorData = await deviceRes.json(); errorMessage = errorData.message || errorMessage; } 
-        catch (e) { const errorText = await deviceRes.text(); errorMessage = `${errorMessage}. Server: ${errorText.substring(0, 100)}`; }
-        throw new Error(errorMessage);
+        let errorMessage = `Failed to fetch device. Status: ${deviceRes.status} ${deviceRes.statusText}`;
+        let errorDetails = '';
+        try {
+          const errorBodyText = await deviceRes.text(); // Read as text first
+          try {
+            const errorData = JSON.parse(errorBodyText); // Then try to parse as JSON
+            errorMessage = errorData.message || errorMessage;
+          } catch (jsonParseError) {
+            errorDetails = ` Server response (not JSON): ${errorBodyText.substring(0, 200)}`;
+          }
+        } catch (textReadError) {
+          errorDetails = ' Could not read error response body.';
+        }
+        throw new Error(errorMessage + errorDetails);
       }
       const fetchedDevice: Device = await deviceRes.json();
       setDevice(fetchedDevice);
-      await fetchAllHistoricalData(fetchedDevice.serialNumber, true); // isInitialLoad = true
+      await fetchAllHistoricalData(fetchedDevice.serialNumber, true); 
 
     } catch (error: any) {
       console.error("[MonitoringPage] Error in fetchInitialDeviceAndData:", error);
@@ -138,14 +142,14 @@ export default function MonitoringPage() {
 
   useEffect(() => {
     fetchInitialDeviceAndData();
-  }, [fetchInitialDeviceAndData]); // Runs when fetchInitialDeviceAndData reference changes (e.g. deviceId or user changes)
+  }, [fetchInitialDeviceAndData]); 
 
   useEffect(() => {
     if (device && device.serialNumber && !isLoadingDevice && !fetchError) {
       pollingIntervalRef.current = setInterval(() => {
-        if (!document.hidden && !isLoadingHistorical) { // Only poll if tab is visible AND not already loading
+        if (!document.hidden && !isLoadingHistorical) { 
             console.log(`[MonitoringPage] Polling for historical data for device ${device.serialNumber}`);
-            fetchAllHistoricalData(device.serialNumber, false); // isInitialLoad = false
+            fetchAllHistoricalData(device.serialNumber, false); 
         }
       }, POLLING_INTERVAL_MS);
 
@@ -159,12 +163,12 @@ export default function MonitoringPage() {
              clearInterval(pollingIntervalRef.current);
         }
     }
-  }, [device, fetchAllHistoricalData, isLoadingDevice, fetchError, isLoadingHistorical]); // Added isLoadingHistorical
+  }, [device, fetchAllHistoricalData, isLoadingDevice, fetchError, isLoadingHistorical]); 
   
   const handleManualRefresh = () => {
       if (device && device.serialNumber && !isLoadingHistorical) {
           toast({ title: "Refreshing Data...", description: `Fetching latest history for ${device.name}.` });
-          fetchAllHistoricalData(device.serialNumber, false); // isInitialLoad = false
+          fetchAllHistoricalData(device.serialNumber, false); 
       }
   };
 
@@ -220,14 +224,12 @@ export default function MonitoringPage() {
         }
       />
 
-      {/* Show overall skeleton if initial historical data is loading AND no data is present yet */}
       {isLoadingHistorical && Object.keys(historicalData).length === 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
             {SENSOR_TYPES_FOR_DISPLAY.map(type => ( <Skeleton key={type} className="h-[400px] w-full" /> ))}
           </div>
       )}
 
-      {/* Show "No data" message if not loading, device is loaded, but all historical data arrays are empty/undefined */}
       {!isLoadingHistorical && !isLoadingDevice && Object.values(historicalData).every(arr => !arr || arr.length === 0) && !fetchError && (
          <Card className="lg:col-span-2 mt-6">
             <CardHeader><CardTitle>No Historical Data</CardTitle><CardDescription>No historical data found for this device yet, or an error occurred fetching it.</CardDescription></CardHeader>
@@ -235,11 +237,9 @@ export default function MonitoringPage() {
         </Card>
       )}
       
-      {/* Render charts if there's some data OR if we are in subsequent loading states (not initial full skeleton) */}
       {(Object.values(historicalData).some(arr => arr && arr.length > 0) || (isLoadingHistorical && Object.keys(historicalData).length > 0) ) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {SENSOR_TYPES_FOR_DISPLAY.map(type => (
-            // Show skeleton for individual chart if it's loading and has no data yet, otherwise show chart
             (isLoadingHistorical && (!historicalData[type] || historicalData[type]?.length === 0)) ? 
             <Skeleton key={`${type}-loading`} className="h-[400px] w-full" /> :
             <DataChart key={type} sensorData={historicalData[type] || []} sensorType={type} />
