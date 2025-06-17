@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview An AI agent that provides advice on maintaining plants in a portable greenhouse.
@@ -56,6 +57,9 @@ const provideGreenhouseAdviceFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output) {
+      throw new Error("AI failed to generate advice in the expected format. The response from the model might be empty or not match the defined output schema.");
+    }
+    return output;
   }
 );

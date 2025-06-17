@@ -19,7 +19,6 @@ export async function getDb() {
       driver: sqlite3.Database,
     });
 
-    // Habilitar el modo WAL para mejorar la concurrencia
     await db.exec('PRAGMA journal_mode = WAL;');
 
     await db.exec(`
@@ -52,19 +51,18 @@ export async function getDb() {
       );
     `);
     
-    // Añadir índice en devices.userId
     await db.run('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices (userId);');
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
           deviceId TEXT PRIMARY KEY,
-          measurementInterval INTEGER DEFAULT 5,         -- minutes
+          measurementInterval INTEGER DEFAULT 5,
           autoIrrigation BOOLEAN DEFAULT TRUE,
-          irrigationThreshold INTEGER DEFAULT 30,        -- percentage
+          irrigationThreshold INTEGER DEFAULT 30,
           autoVentilation BOOLEAN DEFAULT TRUE,
-          temperatureThreshold REAL DEFAULT 30.0,        -- degrees
-          temperatureFanOffThreshold REAL DEFAULT 28.0,  -- degrees
-          photoCaptureInterval INTEGER DEFAULT 6,        -- hours
+          temperatureThreshold REAL DEFAULT 30.0,
+          temperatureFanOffThreshold REAL DEFAULT 28.0,
+          photoCaptureInterval INTEGER DEFAULT 6,
           temperatureUnit TEXT DEFAULT '${TemperatureUnit.CELSIUS}',
           desiredLightState BOOLEAN DEFAULT FALSE,
           desiredFanState BOOLEAN DEFAULT FALSE,
@@ -82,10 +80,10 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS sensor_readings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         deviceId TEXT NOT NULL,
-        type TEXT NOT NULL, -- SensorType enum as string
+        type TEXT NOT NULL, 
         value REAL NOT NULL,
         unit TEXT,
-        timestamp INTEGER NOT NULL, -- Unix timestamp in milliseconds
+        timestamp INTEGER NOT NULL, 
         FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);

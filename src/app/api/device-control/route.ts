@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
         fieldToUpdate = 'desiredUvLightState';
         break;
       default:
+        // Should be caught by Zod enum, but as a fallback
         return NextResponse.json({ message: 'Invalid actuator type' }, { status: 400 });
     }
 
@@ -57,20 +58,21 @@ export async function POST(request: NextRequest) {
     );
 
     if (result.changes === 0) {
+      // This could happen if the device_settings row doesn't exist for some reason.
       return NextResponse.json({ message: 'Device settings not found or no change made' }, { status: 404 });
     }
     
-    // Update device's lastUpdateTimestamp
+    // Update device's lastUpdateTimestamp to indicate recent interaction
     await db.run('UPDATE devices SET lastUpdateTimestamp = ? WHERE serialNumber = ?', Date.now(), deviceId);
 
 
-    return NextResponse.json({ message: `${actuator} state set to ${state} successfully` }, { status: 200 });
+    return NextResponse.json({ message: `${actuator} state set to ${state} successfully. The device will apply this on its next command poll.` }, { status: 200 });
 
   } catch (error) {
     console.error('Error setting device control state:', error);
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ message: 'Invalid input data', errors: error.format() }, { status: 400 });
+    if (error instanceof z.ZodError) { // Should not happen if validation.success is false
+      return NextResponse.json({ message: 'Invalid input data validation error post-check.', errors: error.format() }, { status: 400 });
     }
-    return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
+    return NextResponse.json({ message: 'An internal server error occurred while setting device control state.' }, { status: 500 });
   }
 }

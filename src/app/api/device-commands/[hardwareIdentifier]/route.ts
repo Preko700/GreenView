@@ -25,7 +25,7 @@ export async function GET(
     const deviceId = device.serialNumber;
 
     // Fetch all settings, including new requestManual... flags
-    const settings = await db.get<DeviceSettings>(
+    const settings = await db.get<DeviceSettings & { requestManualLightLevelReading?: boolean } >( // Added LightLevel for explicit typing
       `SELECT 
         measurementInterval, desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState, 
         autoIrrigation, irrigationThreshold, autoVentilation, temperatureThreshold, temperatureFanOffThreshold,
@@ -35,57 +35,36 @@ export async function GET(
     );
 
     if (!settings) {
-      return NextResponse.json({ message: 'Device settings not found' }, { status: 404 });
+      return NextResponse.json({ message: 'Device settings not found for this device' }, { status: 404 });
     }
 
     const mapStateToCommand = (state: boolean | undefined | null) => {
-      if (state === undefined || state === null) return null;
+      if (state === undefined || state === null) return null; // Or handle as "NO_CHANGE" if Arduino expects that
       return state ? "ON" : "OFF";
     };
 
     const manualReadRequests: SensorType[] = [];
-    const updatesToFlags: string[] = [];
-    const updateParams: (boolean | string)[] = [];
+    
+    // Check and add manual read requests
+    if (settings.requestManualTemperatureReading) manualReadRequests.push(SensorType.TEMPERATURE);
+    if (settings.requestManualAirHumidityReading) manualReadRequests.push(SensorType.AIR_HUMIDITY);
+    if (settings.requestManualSoilHumidityReading) manualReadRequests.push(SensorType.SOIL_HUMIDITY);
+    if (settings.requestManualLightLevelReading) manualReadRequests.push(SensorType.LIGHT);
+    // Add other sensors here if supported by Arduino for manual read
 
-    if (settings.requestManualTemperatureReading) {
-      manualReadRequests.push(SensorType.TEMPERATURE);
-      updatesToFlags.push('requestManualTemperatureReading = ?');
-      updateParams.push(false, deviceId);
-    }
-    if (settings.requestManualAirHumidityReading) {
-      manualReadRequests.push(SensorType.AIR_HUMIDITY);
-      updatesToFlags.push('requestManualAirHumidityReading = ?');
-      updateParams.push(false, deviceId);
-    }
-    if (settings.requestManualSoilHumidityReading) {
-      manualReadRequests.push(SensorType.SOIL_HUMIDITY);
-      updatesToFlags.push('requestManualSoilHumidityReading = ?');
-      updateParams.push(false, deviceId);
-    }
-    if (settings.requestManualLightLevelReading) {
-      manualReadRequests.push(SensorType.LIGHT);
-      updatesToFlags.push('requestManualLightLevelReading = ?');
-      updateParams.push(false, deviceId);
-    }
-
-    // If there were manual read requests, clear their flags in the database
-    if (updatesToFlags.length > 0) {
-        // It's better to update all flags that were true in a single transaction or statement if possible.
-        // For simplicity here, we'll do it sequentially, but in a high-traffic system, batching is preferred.
-        // The current updateParams logic is a bit off for multiple updates in one go.
-        // Let's reset them individually.
-        if (settings.requestManualTemperatureReading) {
-            await db.run('UPDATE device_settings SET requestManualTemperatureReading = ? WHERE deviceId = ?', false, deviceId);
-        }
-        if (settings.requestManualAirHumidityReading) {
-            await db.run('UPDATE device_settings SET requestManualAirHumidityReading = ? WHERE deviceId = ?', false, deviceId);
-        }
-        if (settings.requestManualSoilHumidityReading) {
-            await db.run('UPDATE device_settings SET requestManualSoilHumidityReading = ? WHERE deviceId = ?', false, deviceId);
-        }
-         if (settings.requestManualLightLevelReading) {
-            await db.run('UPDATE device_settings SET requestManualLightLevelReading = ? WHERE deviceId = ?', false, deviceId);
-        }
+    // Reset flags in database after fetching them
+    // It's important this happens *after* we've decided to include them in manualReadRequests
+    // and *before* sending the response to Arduino.
+    if (manualReadRequests.length > 0) {
+      const updates: string[] = [];
+      if (settings.requestManualTemperatureReading) updates.push('requestManualTemperatureReading = FALSE');
+      if (settings.requestManualAirHumidityReading) updates.push('requestManualAirHumidityReading = FALSE');
+      if (settings.requestManualSoilHumidityReading) updates.push('requestManualSoilHumidityReading = FALSE');
+      if (settings.requestManualLightLevelReading) updates.push('requestManualLightLevelReading = FALSE');
+      
+      if (updates.length > 0) {
+        await db.run(`UPDATE device_settings SET ${updates.join(', ')} WHERE deviceId = ?`, deviceId);
+      }
     }
     
     const responsePayload: any = {
@@ -95,6 +74,10 @@ export async function GET(
       autoVentilationEnabled: !!settings.autoVentilation,
       temperatureOnThresholdCelsius: settings.temperatureThreshold,
       temperatureOffThresholdCelsius: settings.temperatureFanOffThreshold,
+      // Only include actuator commands if they are explicitly set (not undefined/null)
+      // This allows Arduino to maintain its current state if no command is sent.
+      // Or, if Arduino expects explicit ON/OFF, mapStateToCommand should handle nulls to a default (e.g., "OFF" or "NO_CHANGE").
+      // Assuming for now that null means "no change requested by user via manual toggle".
       lightCommand: mapStateToCommand(settings.desiredLightState),
       fanCommand: mapStateToCommand(settings.desiredFanState),
       irrigationCommand: mapStateToCommand(settings.desiredIrrigationState),
@@ -109,6 +92,6 @@ export async function GET(
 
   } catch (error) {
     console.error(`Error fetching commands for hardwareId ${hardwareIdentifier}:`, error);
-    return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
+    return NextResponse.json({ message: 'An internal server error occurred while fetching device commands.' }, { status: 500 });
   }
 }

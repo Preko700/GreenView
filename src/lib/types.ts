@@ -58,6 +58,7 @@ export interface DeviceImage {
   timestamp: number;
   isManualCapture: boolean;
   dataAiHint?: string;
+  source?: 'capture' | 'upload'; // To distinguish between captured and uploaded
 }
 
 export enum TicketStatus {
@@ -100,6 +101,9 @@ export interface DeviceSettings {
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
   requestManualLightLevelReading?: boolean;
+  // Add other manual reading flags if needed, e.g., PH, WATER_LEVEL
+  // requestManualPhReading?: boolean;
+  // requestManualWaterLevelReading?: boolean;
 }
 
 export interface NavItem {
@@ -111,4 +115,3 @@ export interface NavItem {
   label?: string;
   description?: string;
 }
-

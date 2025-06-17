@@ -43,8 +43,15 @@ export async function POST(request: NextRequest) {
       case SensorType.LIGHT:
         fieldToUpdate = 'requestManualLightLevelReading';
         break;
+      // Add cases for PH, WATER_LEVEL if you want to support manual requests for them
+      // case SensorType.PH:
+      //   fieldToUpdate = 'requestManualPhReading';
+      //   break;
+      // case SensorType.WATER_LEVEL:
+      //   fieldToUpdate = 'requestManualWaterLevelReading';
+      //   break;
       default:
-        return NextResponse.json({ message: `Manual reading for ${sensorType} is not supported.` }, { status: 400 });
+        return NextResponse.json({ message: `Manual reading for sensor type '${sensorType}' is not supported.` }, { status: 400 });
     }
 
     const result = await db.run(
@@ -55,19 +62,19 @@ export async function POST(request: NextRequest) {
 
     if (result.changes === 0) {
       // This might happen if device_settings row doesn't exist, though it should be created with device registration
-      return NextResponse.json({ message: 'Device settings not found or no change made' }, { status: 404 });
+      return NextResponse.json({ message: 'Device settings not found or no change made. Ensure device is registered.' }, { status: 404 });
     }
     
     // Update device's lastUpdateTimestamp as a general activity marker
     await db.run('UPDATE devices SET lastUpdateTimestamp = ? WHERE serialNumber = ?', Date.now(), deviceId);
 
-    return NextResponse.json({ message: `Manual reading request for ${sensorType} sent successfully. Arduino will perform reading on next poll.` }, { status: 200 });
+    return NextResponse.json({ message: `Manual reading request for ${sensorType.toLowerCase()} sent successfully. The device will perform the reading on its next command poll.` }, { status: 200 });
 
   } catch (error) {
     console.error('Error requesting manual sensor reading:', error);
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ message: 'Invalid input data', errors: error.format() }, { status: 400 });
+    if (error instanceof z.ZodError) { // Should not happen if validation.success is false
+      return NextResponse.json({ message: 'Invalid input data validation error post-check.', errors: error.format() }, { status: 400 });
     }
-    return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
+    return NextResponse.json({ message: 'An internal server error occurred while requesting manual sensor reading.' }, { status: 500 });
   }
 }
