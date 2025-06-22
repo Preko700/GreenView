@@ -1,10 +1,11 @@
 
-// User type for simplified auth
 export interface User {
-  // uid no longer needed from Firebase for this simple auth
-  email: string;
-  name: string | null; // Keep name for UserNav display
-  profileImageUrl?: string | null; // Keep for UserNav, will likely be undefined/null
+  id: number;
+  name: string | null;
+  email: string | null;
+  country?: string | null;
+  registrationDate?: number;
+  profileImageUrl?: string | null;
 }
 
 export interface EmailPasswordCredentials {
@@ -12,17 +13,23 @@ export interface EmailPasswordCredentials {
   password: string;
 }
 
+export interface RegistrationCredentials extends EmailPasswordCredentials {
+    name: string;
+    country?: string;
+}
+
 export interface Device {
   serialNumber: string;
-  // userId: string; // This would previously match User['uid']. Consider if still needed or how to link if no real users.
+  hardwareIdentifier: string;
+  // userId is fetched alongside in API routes when needed
   name: string;
+  plantType?: string | null;
+  location?: string | null;
   activationDate: number;
-  warrantyEndDate: number;
+  warrantyEndDate?: number | null;
   isActive: boolean;
   isPoweredByBattery: boolean;
-  lastUpdateTimestamp: number;
-  plantType?: string; 
-  location?: string; 
+  lastUpdateTimestamp?: number;
 }
 
 export enum SensorType {
@@ -32,16 +39,16 @@ export enum SensorType {
   PH = "PH",
   LIGHT = "LIGHT",
   WATER_LEVEL = "WATER_LEVEL",
-  DRAINAGE = "DRAINAGE",
+  DRAINAGE = "DRAINAGE", // Not in Arduino code yet, but keeping
 }
 
-export interface SensorData {
-  id: string;
+export interface SensorReading {
+  id?: number; // Optional as it's auto-incremented
   deviceId: string;
-  type: SensorType;
+  type: SensorType | string; // Allow string for flexibility if Arduino sends custom types
   value: number;
-  timestamp: number;
   unit?: string; 
+  timestamp: number;
 }
 
 export interface DeviceImage {
@@ -51,6 +58,7 @@ export interface DeviceImage {
   timestamp: number;
   isManualCapture: boolean;
   dataAiHint?: string;
+  source?: 'capture' | 'upload'; // To distinguish between captured and uploaded
 }
 
 export enum TicketStatus {
@@ -61,7 +69,6 @@ export enum TicketStatus {
 
 export interface Ticket {
   id: string;
-  // userId: string; // Consider if still needed
   deviceId: string;
   title: string;
   description: string;
@@ -86,6 +93,17 @@ export interface DeviceSettings {
   temperatureFanOffThreshold: number; // degrees
   photoCaptureInterval: number; // hours
   temperatureUnit: TemperatureUnit;
+  desiredLightState: boolean;
+  desiredFanState: boolean;
+  desiredIrrigationState: boolean;
+  desiredUvLightState: boolean;
+  requestManualTemperatureReading?: boolean;
+  requestManualAirHumidityReading?: boolean;
+  requestManualSoilHumidityReading?: boolean;
+  requestManualLightLevelReading?: boolean;
+  // Add other manual reading flags if needed, e.g., PH, WATER_LEVEL
+  // requestManualPhReading?: boolean;
+  // requestManualWaterLevelReading?: boolean;
 }
 
 export interface NavItem {

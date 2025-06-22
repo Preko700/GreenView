@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -34,7 +35,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector'; // Corrected import name
+import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector';
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -57,7 +58,7 @@ const deviceSettingsSchema = z.object({
   irrigationThreshold: z.coerce.number().min(10, "Min 10").max(90, "Max 90"),
   autoVentilation: z.boolean(),
   temperatureThreshold: z.coerce.number().min(0, "Min 0").max(50, "Max 50"),
-  temperatureFanOffThreshold: z.coerce.number().min(0, "Max 0").max(49, "Max 49"), // Corrected max for temp off
+  temperatureFanOffThreshold: z.coerce.number().min(0, "Min 0").max(49, "Max 49"),
   photoCaptureInterval: z.coerce.number().min(1, "Min 1").max(24, "Max 24"),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
 }).refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
@@ -300,10 +301,7 @@ export default function SettingsPage() {
         toast({ title: "Device Settings Saved", description: `Configuration for ${selectedDeviceId} updated.` });
         setCurrentDeviceSettings(data.settings); 
         deviceForm.reset(data.settings); 
-        
-        const newTimestamp = Date.now();
-        console.log('[SettingsPage] Device settings saved. New timestamp for UsbDeviceConnector:', newTimestamp);
-        setSettingsLastUpdatedTimestamp(newTimestamp);
+        setSettingsLastUpdatedTimestamp(Date.now());
 
     } catch (error: any) {
         toast({ title: "Save Failed", description: error.message, variant: "destructive" });

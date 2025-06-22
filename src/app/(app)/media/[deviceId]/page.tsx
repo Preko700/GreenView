@@ -1,72 +1,248 @@
+
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { ImageGrid } from '@/components/media/ImageGrid';
-import { getMockDevice, getMockDeviceImages } from '@/data/mockData';
 import type { Device, DeviceImage } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Camera, Film, Loader2 } from 'lucide-react';
+import { ArrowLeft, Camera, Upload, Loader2, AlertTriangle, Film, PlayCircle, Download } from 'lucide-react';
+import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAuth } from '@/contexts/AuthContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle as UiAlertTitle } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import GIFEncoder from 'gifencoder';
+
 
 export default function MediaPage() {
   const params = useParams();
   const router = useRouter();
   const deviceId = params.deviceId as string;
+  const { user } = useAuth();
   const { toast } = useToast();
 
   const [device, setDevice] = useState<Device | null>(null);
   const [images, setImages] = useState<DeviceImage[]>([]);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [isCapturing, setIsCapturing] = useState(false);
-  // const [isGeneratingTimelapse, setIsGeneratingTimelapse] = useState(false); // For future use
+  const [isUploading, setIsUploading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isGeneratingTimelapse, setIsGeneratingTimelapse] = useState(false);
+  const [timelapseUrl, setTimelapseUrl] = useState<string | null>(null);
+  const [timelapseError, setTimelapseError] = useState<string | null>(null);
+  const [showTimelapseDialog, setShowTimelapseDialog] = useState(false);
+
+  const fetchDeviceData = useCallback(async () => {
+    if (deviceId && user) {
+      setIsPageLoading(true);
+      setFetchError(null);
+      try {
+        const res = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
+        if (!res.ok) {
+            let errorMsg = `Failed to fetch device. Status: ${res.status}`;
+            if (res.status === 404) errorMsg = "Device not found or you're not authorized for this user.";
+            else {
+                try { const data = await res.json(); errorMsg = data.message || errorMsg;}
+                catch { errorMsg = `Failed to fetch device details and parse error. Status: ${res.status}`;}
+            }
+            throw new Error(errorMsg);
+        }
+        const fetchedDevice: Device = await res.json();
+        setDevice(fetchedDevice);
+        setImages([]); 
+        
+      } catch (error: any) {
+        console.error("Error fetching device:", error);
+        const specificMessage = error.message || "Could not load device details.";
+        toast({ title: "Error Loading Data", description: specificMessage, variant: "destructive"});
+        setFetchError(specificMessage);
+        setDevice(null);
+      } finally {
+        setIsPageLoading(false);
+      }
+    } else if (!user && deviceId) {
+      setIsPageLoading(true);
+    } else if (!deviceId) {
+        setIsPageLoading(false);
+        setFetchError("No device ID specified in the URL.");
+    }
+  }, [deviceId, user, toast]);
+
 
   useEffect(() => {
-    if (deviceId) {
-      setIsPageLoading(true);
-      const foundDevice = getMockDevice(deviceId);
-      const foundImages = getMockDeviceImages(deviceId);
-      setDevice(foundDevice || null);
-      setImages(foundImages || []);
-      setTimeout(() => setIsPageLoading(false), 500);
-    }
-  }, [deviceId]);
+    fetchDeviceData();
+  }, [fetchDeviceData]);
 
-  const handleCaptureImage = async () => {
+  const handleSimulatedCaptureImage = async () => {
+    if (!device) return;
     setIsCapturing(true);
-    // Simulate API call for capturing image
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
     const newImage: DeviceImage = {
-      id: `img-${Date.now()}`,
+      id: `simcap-${Date.now()}`,
       deviceId: deviceId,
-      imageUrl: `https://placehold.co/600x400.png?text=NewCapture-${new Date().toLocaleTimeString()}`,
-      dataAiHint: "new capture",
+      imageUrl: `https://placehold.co/600x400.png?text=SimCap-${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+      dataAiHint: "simulated capture",
       timestamp: Date.now(),
-      isManualCapture: true,
+      isManualCapture: true, 
+      source: 'capture',
     };
-    setImages(prev => [newImage, ...prev]);
+    setImages(prev => [newImage, ...prev].sort((a,b) => b.timestamp - a.timestamp));
     setIsCapturing(false);
-    toast({ title: "Image Captured!", description: "The new image has been added to the gallery." });
+    toast({ title: "Image Captured (Simulated)!", description: "The new image has been added to the gallery." });
   };
 
-  // Placeholder for timelapse generation
-  // const handleGenerateTimelapse = async () => {
-  //   setIsGeneratingTimelapse(true);
-  //   await new Promise(resolve => setTimeout(resolve, 3000));
-  //   setIsGeneratingTimelapse(false);
-  //   toast({ title: "Timelapse Generated (Mock)", description: "Your timelapse video is ready." });
-  // };
+  const handleTriggerUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        toast({ title: "Invalid File", description: "Please select an image file.", variant: "destructive" });
+        return;
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const newImage: DeviceImage = {
+          id: `upload-${Date.now()}-${file.name}`,
+          deviceId: deviceId,
+          imageUrl: reader.result as string, 
+          dataAiHint: "uploaded image", 
+          timestamp: Date.now(),
+          isManualCapture: false, 
+          source: 'upload',
+        };
+        setImages(prev => [newImage, ...prev].sort((a,b) => b.timestamp - a.timestamp));
+        toast({ title: "Image Uploaded", description: `${file.name} has been added to the gallery (client-side).` });
+      };
+      reader.onerror = () => {
+        console.error("Error reading file for upload:", reader.error);
+        toast({ title: "Upload Failed", description: "Could not read the selected file.", variant: "destructive" });
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error("Error processing upload:", error);
+      toast({ title: "Upload Error", description: error.message || "An unexpected error occurred during upload.", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleGenerateTimelapse = async () => {
+    if (!images.length) {
+      toast({ title: "No Images", description: "Please add images to the gallery first.", variant: "destructive" });
+      return;
+    }
+
+    setIsGeneratingTimelapse(true);
+    setTimelapseUrl(null);
+    setTimelapseError(null);
+    setShowTimelapseDialog(true);
+
+    try {
+      const sortedImages = [...images].sort((a, b) => a.timestamp - b.timestamp);
+      
+      const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous"; // Add crossOrigin attribute
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = sortedImages[0].imageUrl;
+      });
+
+      const MAX_DIMENSION = 480;
+      let frameWidth = firstImageElement.naturalWidth;
+      let frameHeight = firstImageElement.naturalHeight;
+
+      if (frameWidth > MAX_DIMENSION || frameHeight > MAX_DIMENSION) {
+        if (frameWidth > frameHeight) {
+          frameHeight = Math.round(frameHeight * (MAX_DIMENSION / frameWidth));
+          frameWidth = MAX_DIMENSION;
+        } else {
+          frameWidth = Math.round(frameWidth * (MAX_DIMENSION / frameHeight));
+          frameHeight = MAX_DIMENSION;
+        }
+      }
+      
+      const encoder = new GIFEncoder(frameWidth, frameHeight);
+      encoder.start();
+      encoder.setRepeat(0); 
+      encoder.setDelay(300); 
+      encoder.setQuality(15); 
+
+      const canvas = document.createElement('canvas');
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error("Could not get canvas context for timelapse generation.");
+      }
+      
+      for (const deviceImage of sortedImages) {
+        await new Promise<void>((resolveFrame, rejectFrame) => {
+          const img = new window.Image();
+          if (!deviceImage.imageUrl.startsWith('data:')) { // Only set for external images
+            img.crossOrigin = "anonymous"; // Add crossOrigin attribute
+          }
+          img.onload = () => {
+            ctx.clearRect(0, 0, frameWidth, frameHeight);
+            ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
+            encoder.addFrame(ctx);
+            resolveFrame();
+          };
+          img.onerror = (err) => {
+            console.error("Error loading image for timelapse frame:", deviceImage.imageUrl, err);
+            resolveFrame(); 
+          };
+          img.src = deviceImage.imageUrl;
+        });
+      }
+
+      encoder.finish();
+      const buffer = encoder.out.getData();
+      const blob = new Blob([new Uint8Array(buffer)], { type: 'image/gif' });
+      const url = URL.createObjectURL(blob);
+      setTimelapseUrl(url);
+
+    } catch (error: any) {
+      console.error("Error generating timelapse:", error);
+      setTimelapseError(error.message || "An unknown error occurred while generating the timelapse.");
+      toast({ title: "Timelapse Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsGeneratingTimelapse(false);
+    }
+  };
+
 
   if (isPageLoading) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 space-y-6">
-        <Skeleton className="h-10 w-1/2" />
-        <div className="flex space-x-2">
-            <Skeleton className="h-10 w-32" />
-            {/* <Skeleton className="h-10 w-40" /> */}
+        <div className="flex justify-between items-center">
+            <Skeleton className="h-10 w-3/5" />
+            <div className="flex space-x-2"> <Skeleton className="h-10 w-32" /> <Skeleton className="h-10 w-32" /> <Skeleton className="h-10 w-40" /></div>
         </div>
+         <Skeleton className="h-6 w-2/5" />
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => <Skeleton key={i} className="aspect-video w-full" />)}
         </div>
@@ -74,14 +250,27 @@ export default function MediaPage() {
     );
   }
 
-  if (!device) {
+  if (fetchError && !device) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6 text-center">
-        <h1 className="text-2xl font-semibold text-destructive">Device not found</h1>
-        <p className="text-muted-foreground mt-2">The device with ID '{deviceId}' could not be loaded.</p>
-        <Button onClick={() => router.push('/dashboard')} className="mt-4">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-        </Button>
+        <Card className="max-w-md mx-auto mt-8">
+            <CardHeader> <AlertTriangle className="h-12 w-12 text-destructive mx-auto" /> <CardTitle className="text-2xl text-destructive">Could Not Load Media Page</CardTitle> </CardHeader>
+            <CardContent>
+                <Alert variant="destructive" className="text-left"> <UiAlertTitle>Error Details</UiAlertTitle> <AlertDescription> <p>{fetchError}</p> <p className="mt-2">Please try refreshing or select a different device from the dashboard.</p> </AlertDescription> </Alert>
+                <Button onClick={() => router.push('/dashboard')} className="mt-6"> <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard </Button>
+            </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  
+  if (!device) { 
+      return (
+      <div className="container mx-auto py-8 px-4 md:px-6 text-center">
+        <Card className="max-w-md mx-auto mt-8">
+            <CardHeader> <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto" /> <CardTitle className="text-2xl">Device Not Available</CardTitle> </CardHeader>
+            <CardContent> <p className="text-muted-foreground mt-2">The media page could not be loaded. Please select a device from the dashboard.</p> <Button onClick={() => router.push('/dashboard')} className="mt-6"> <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard </Button> </CardContent>
+        </Card>
       </div>
     );
   }
@@ -90,30 +279,92 @@ export default function MediaPage() {
     <div className="container mx-auto py-8 px-4 md:px-6">
       <PageHeader
         title={`Media Gallery: ${device.name}`}
-        description={`View images captured by ${device.serialNumber}.`}
+        description={`View images for ${device.serialNumber}. Upload or simulate captures. Generate a timelapse.`}
         action={
-          <div className="flex space-x-2">
-            <Button onClick={handleCaptureImage} disabled={isCapturing || !device.isActive} variant="outline">
+          <div className="flex items-center space-x-2">
+            <Button onClick={handleSimulatedCaptureImage} disabled={isCapturing || isUploading || isGeneratingTimelapse} variant="outline">
               {isCapturing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-              Capture Image
+              Simulate Capture
             </Button>
-            {/* Placeholder for Timelapse Button
-            <Button onClick={handleGenerateTimelapse} disabled={isGeneratingTimelapse || images.length < 2} variant="outline">
-              {isGeneratingTimelapse ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Film className="mr-2 h-4 w-4" />}
+            <Button onClick={handleTriggerUpload} disabled={isUploading || isCapturing || isGeneratingTimelapse} variant="outline">
+              {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              Upload Image
+            </Button>
+            <Button onClick={handleGenerateTimelapse} disabled={isGeneratingTimelapse || images.length < 2} variant="default">
+              {isGeneratingTimelapse ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
               Generate Timelapse
             </Button>
-            */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImageUpload}
+              accept="image/*"
+              className="hidden"
+              disabled={isUploading || isCapturing || isGeneratingTimelapse}
+            />
           </div>
         }
       />
       
       {!device.isActive && (
-        <div className="mb-6 p-4 border border-yellow-400 bg-yellow-50 text-yellow-700 rounded-md">
-          <p>This device is currently inactive. Capturing new images might not be available.</p>
-        </div>
+        <Alert variant="default" className="mb-6 bg-yellow-50 border-yellow-400 text-yellow-700 dark:bg-yellow-900/30 dark:border-yellow-700 dark:text-yellow-300">
+          <AlertTriangle className="h-4 w-4 !text-yellow-600 dark:!text-yellow-400" />
+          <UiAlertTitle>Device Currently Inactive</UiAlertTitle>
+          <AlertDescription>
+            This device is currently marked as inactive. Simulated captures and uploads are still possible.
+          </AlertDescription>
+        </Alert>
        )}
 
       <ImageGrid images={images} />
+
+      <Dialog open={showTimelapseDialog} onOpenChange={setShowTimelapseDialog}>
+        <DialogContent className="sm:max-w-md md:max-w-lg lg:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Timelapse Preview</DialogTitle>
+            <DialogDescription>
+              {isGeneratingTimelapse && "Generating your timelapse, please wait..."}
+              {timelapseUrl && "Your timelapse is ready!"}
+              {timelapseError && "Failed to generate timelapse."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="my-4 flex items-center justify-center">
+            {isGeneratingTimelapse && <Loader2 className="h-16 w-16 animate-spin text-primary" />}
+            {timelapseUrl && !isGeneratingTimelapse && (
+              <Image 
+                src={timelapseUrl} 
+                alt="Generated Timelapse" 
+                width={480} 
+                height={360} 
+                className="rounded-md border" 
+                unoptimized 
+              />
+            )}
+            {timelapseError && !isGeneratingTimelapse && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <UiAlertTitle>Error</UiAlertTitle>
+                <AlertDescription>{timelapseError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <DialogFooter className="sm:justify-between">
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Close
+              </Button>
+            </DialogClose>
+            {timelapseUrl && !isGeneratingTimelapse && (
+              <Button asChild>
+                <a href={timelapseUrl} download={`timelapse-${deviceId}-${Date.now()}.gif`}>
+                  <Download className="mr-2 h-4 w-4" /> Download GIF
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

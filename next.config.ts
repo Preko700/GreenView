@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
@@ -17,6 +18,22 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+  },
+  async headers() {
+    return [
+      {
+        // Aplicar estos encabezados a todas las rutas de la aplicación
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            // Permite el acceso a la API serial. 
+            // 'serial=*' permite a todos los orígenes, considera 'serial=self' para mayor seguridad si es aplicable.
+            value: 'serial=*', 
+          },
+        ],
+      },
+    ];
   },
 };
 
