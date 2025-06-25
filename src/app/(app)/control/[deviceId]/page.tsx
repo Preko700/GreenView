@@ -360,7 +360,7 @@ export default function ControlPage() {
                 Roof Position
               </CardTitle>
               <CardDescription>
-                Manually open or close the greenhouse roof. Requires a direct USB connection.
+                Manually open or close the greenhouse roof. Requires a direct USB connection. Note: Automatic control, if enabled, may override manual commands based on light levels.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col sm:flex-row gap-4">

@@ -461,11 +461,17 @@ export default function SettingsPage() {
                   <div>
                      <h3 className="text-lg font-medium text-foreground">Roof Control</h3>
                      <div className="space-y-4 mt-2">
-                        <FormField control={deviceForm.control} name="autoRoofControl" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Roof Control</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["roofOpenTime", "roofCloseTime"]); }} /></FormControl> </FormItem> )}/>
+                        <FormField control={deviceForm.control} name="autoRoofControl" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
+                            <div className="space-y-0.5">
+                                <FormLabel>Auto Roof Control</FormLabel>
+                                <FormDescription>The Arduino logic primarily uses light levels. Time settings are for hardware with a Real-Time Clock (RTC).</FormDescription>
+                            </div>
+                            <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["roofOpenTime", "roofCloseTime"]); }} /></FormControl>
+                         </FormItem> )}/>
                         {deviceForm.watch("autoRoofControl") && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <FormField control={deviceForm.control} name="roofOpenTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Sun className="mr-2 h-4 w-4"/>Open Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to open the roof.</FormDescription><FormMessage /></FormItem> )}/>
-                                <FormField control={deviceForm.control} name="roofCloseTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Moon className="mr-2 h-4 w-4"/>Close Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to close the roof.</FormDescription><FormMessage /></FormItem> )}/>
+                                <FormField control={deviceForm.control} name="roofOpenTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Sun className="mr-2 h-4 w-4"/>Open Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to open the roof (if RTC is present).</FormDescription><FormMessage /></FormItem> )}/>
+                                <FormField control={deviceForm.control} name="roofCloseTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Moon className="mr-2 h-4 w-4"/>Close Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to close the roof (if RTC is present).</FormDescription><FormMessage /></FormItem> )}/>
                             </div>
                         )}
                      </div>
