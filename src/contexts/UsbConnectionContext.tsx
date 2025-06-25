@@ -239,6 +239,9 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       
       addLog(`SYNC: Config Auto Vent. = ${settings.autoVentilation}, Temp On = ${settings.temperatureThreshold}, Temp Off = ${settings.temperatureFanOffThreshold}.`);
       await sendSerialCommand({ command: "set_auto_ventilation", enabled: settings.autoVentilation, temp_on: settings.temperatureThreshold, temp_off: settings.temperatureFanOffThreshold });
+      
+      addLog(`SYNC: Config Auto Techo = ${settings.autoRoofControl}, Abre = ${settings.roofOpenTime}, Cierra = ${settings.roofCloseTime}.`);
+      await sendSerialCommand({ command: "set_auto_roof", enabled: !!settings.autoRoofControl, open_time: settings.roofOpenTime, close_time: settings.roofCloseTime });
 
     } catch (error: any) {
       addLog(`SYNC ERR: Error al obtener/aplicar config completa: ${error.message}`);
@@ -285,6 +288,8 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog(`MSG: ACK de auto riego recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
     } else if (data.type === "ack_auto_ventilation_set") {
       addLog(`MSG: ACK de auto ventilación recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
+    } else if (data.type === "ack_auto_roof_set") {
+        addLog(`MSG: ACK de auto techo recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Abre: ${data.open_time}, Cierra: ${data.close_time}`);
     } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined)) {
       addLog(`MSG: Datos de sensores recibidos de ${displayHardwareId}: ${jsonString}`);
       try {

@@ -22,7 +22,7 @@ export interface Device {
   serialNumber: string;
   hardwareIdentifier: string;
   // userId is fetched alongside in API routes when needed
-  name: string;
+  name:string;
   plantType?: string | null;
   location?: string | null;
   activationDate: number;
@@ -108,6 +108,11 @@ export interface DeviceSettings {
   notificationSoilHumidityLow: number;
   notificationAirHumidityLow: number;
   notificationAirHumidityHigh: number;
+
+  // Roof control
+  autoRoofControl?: boolean;
+  roofOpenTime?: string; // HH:MM format
+  roofCloseTime?: string; // HH:MM format
 }
 
 export interface NavItem {

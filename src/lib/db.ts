@@ -8,6 +8,21 @@ import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
+async function addColumnIfNotExists(
+  db: Database,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string
+) {
+  const column = await db.get(`PRAGMA table_info(${tableName})`).then(info => 
+    (info as any[]).find(col => col.name === columnName)
+  );
+
+  if (!column) {
+    await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+}
+
 export async function getDb() {
   if (!db) {
     const dbPath = process.env.NODE_ENV === 'production' 
@@ -83,6 +98,12 @@ export async function getDb() {
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
+    
+    // Add columns for roof control if they don't exist
+    await addColumnIfNotExists(db, 'device_settings', 'autoRoofControl', 'BOOLEAN DEFAULT FALSE');
+    await addColumnIfNotExists(db, 'device_settings', 'roofOpenTime', `TEXT DEFAULT '07:00'`);
+    await addColumnIfNotExists(db, 'device_settings', 'roofCloseTime', `TEXT DEFAULT '20:00'`);
+
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sensor_readings (
@@ -151,4 +172,7 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   notificationSoilHumidityLow: 20,
   notificationAirHumidityLow: 30,
   notificationAirHumidityHigh: 80,
+  autoRoofControl: false,
+  roofOpenTime: '07:00',
+  roofCloseTime: '20:00',
 };

@@ -22,6 +22,10 @@ const deviceSettingsUpdateSchema = z.object({
   notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
+  // Roof control settings
+  autoRoofControl: z.boolean(),
+  roofOpenTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
+  roofCloseTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
   // Auth
   userId: z.number().int().positive("User ID is required in request body for saving settings"), 
 });
@@ -62,24 +66,16 @@ export async function GET(
     if (settingsRow) {
       // Ensure boolean values are correctly interpreted from DB (0/1)
       const typedSettings: DeviceSettings = {
+        ...defaultDeviceSettings, // Start with defaults to ensure all keys are present
+        ...settingsRow,
         deviceId: settingsRow.deviceId,
-        measurementInterval: settingsRow.measurementInterval,
         autoIrrigation: !!settingsRow.autoIrrigation,
-        irrigationThreshold: settingsRow.irrigationThreshold,
         autoVentilation: !!settingsRow.autoVentilation,
-        temperatureThreshold: settingsRow.temperatureThreshold,
-        temperatureFanOffThreshold: settingsRow.temperatureFanOffThreshold,
-        photoCaptureInterval: settingsRow.photoCaptureInterval,
-        temperatureUnit: settingsRow.temperatureUnit,
         desiredLightState: !!settingsRow.desiredLightState,
         desiredFanState: !!settingsRow.desiredFanState,
         desiredIrrigationState: !!settingsRow.desiredIrrigationState,
         desiredUvLightState: !!settingsRow.desiredUvLightState,
-        notificationTemperatureLow: settingsRow.notificationTemperatureLow,
-        notificationTemperatureHigh: settingsRow.notificationTemperatureHigh,
-        notificationSoilHumidityLow: settingsRow.notificationSoilHumidityLow,
-        notificationAirHumidityLow: settingsRow.notificationAirHumidityLow,
-        notificationAirHumidityHigh: settingsRow.notificationAirHumidityHigh,
+        autoRoofControl: !!settingsRow.autoRoofControl,
       };
       return NextResponse.json(typedSettings, { status: 200 });
     } else {
@@ -143,7 +139,8 @@ export async function POST(
         photoCaptureInterval = ?, temperatureUnit = ?,
         notificationTemperatureLow = ?, notificationTemperatureHigh = ?,
         notificationSoilHumidityLow = ?, notificationAirHumidityLow = ?,
-        notificationAirHumidityHigh = ?
+        notificationAirHumidityHigh = ?,
+        autoRoofControl = ?, roofOpenTime = ?, roofCloseTime = ?
       WHERE deviceId = ?`,
       settingsToSave.measurementInterval,
       settingsToSave.autoIrrigation,
@@ -158,6 +155,9 @@ export async function POST(
       settingsToSave.notificationSoilHumidityLow,
       settingsToSave.notificationAirHumidityLow,
       settingsToSave.notificationAirHumidityHigh,
+      settingsToSave.autoRoofControl,
+      settingsToSave.roofOpenTime,
+      settingsToSave.roofCloseTime,
       currentDeviceId
     );
 
@@ -174,6 +174,7 @@ export async function POST(
         desiredFanState: !!updatedSettings.desiredFanState,
         desiredIrrigationState: !!updatedSettings.desiredIrrigationState,
         desiredUvLightState: !!updatedSettings.desiredUvLightState,
+        autoRoofControl: !!updatedSettings.autoRoofControl,
       };
 
 

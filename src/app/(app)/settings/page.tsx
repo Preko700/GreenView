@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { mockUser } from '@/data/mockData'; 
 import type { User, Device, DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
-import { Loader2, Save, PlusCircle, AlertTriangle, BellRing } from 'lucide-react';
+import { Loader2, Save, PlusCircle, AlertTriangle, BellRing, Sun, Moon } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -69,6 +69,10 @@ const deviceSettingsSchema = z.object({
   notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
+  // Roof control settings
+  autoRoofControl: z.boolean(),
+  roofOpenTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format (HH:MM)"),
+  roofCloseTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format (HH:MM)"),
 })
 .refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
     message: "Ventilation Temp Off must be less than Temp On threshold.",
@@ -127,6 +131,9 @@ export default function SettingsPage() {
         notificationSoilHumidityLow: 20,
         notificationAirHumidityLow: 30,
         notificationAirHumidityHigh: 80,
+        autoRoofControl: false,
+        roofOpenTime: "07:00",
+        roofCloseTime: "20:00",
     }
   });
 
@@ -228,6 +235,9 @@ export default function SettingsPage() {
             notificationSoilHumidityLow: data.notificationSoilHumidityLow ?? 20,
             notificationAirHumidityLow: data.notificationAirHumidityLow ?? 30,
             notificationAirHumidityHigh: data.notificationAirHumidityHigh ?? 80,
+            autoRoofControl: data.autoRoofControl ?? false,
+            roofOpenTime: data.roofOpenTime ?? "07:00",
+            roofCloseTime: data.roofCloseTime ?? "20:00",
           };
           deviceForm.reset(formValues);
 
@@ -427,31 +437,51 @@ export default function SettingsPage() {
               {selectedDeviceId && isDeviceSettingsLoading && <CardContent><Skeleton className="h-96 w-full mt-4" /></CardContent>}
               
               {selectedDeviceId && !isDeviceSettingsLoading && currentDeviceSettings && (
-                <div className="space-y-4 pt-4 border-t mt-4">
-                  <h3 className="text-lg font-medium text-foreground">Automation Settings</h3>
-                  <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min).</FormDescription> <FormMessage /> </FormItem> )}/>
-                  <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
-                  <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
+                <div className="space-y-8 pt-4 border-t mt-4">
+                  <div>
+                    <h3 className="text-lg font-medium text-foreground">Automation Settings</h3>
+                    <div className="space-y-4 mt-2">
+                        <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min).</FormDescription> <FormMessage /> </FormItem> )}/>
+                        <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
+                        <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
+                        
+                        <FormField control={deviceForm.control} name="autoIrrigation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Irrigation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger("irrigationThreshold"); }} /></FormControl> </FormItem> )}/>
+                        {deviceForm.watch("autoIrrigation") && <FormField control={deviceForm.control} name="irrigationThreshold" render={({ field }) => ( <FormItem><FormLabel>Irrigation Threshold (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Water when soil humidity drops below this (10-90%).</FormDescription><FormMessage /></FormItem> )}/>}
+                        
+                        <FormField control={deviceForm.control} name="autoVentilation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Ventilation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["temperatureThreshold", "temperatureFanOffThreshold"]); }} /></FormControl> </FormItem> )}/>
+                        {deviceForm.watch("autoVentilation") && <>
+                            <FormField control={deviceForm.control} name="temperatureThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp On (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan ON above this temp (0-50).</FormDescription><FormMessage /></FormItem> )}/>
+                            <FormField control={deviceForm.control} name="temperatureFanOffThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp Off (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan OFF below this temp (0-49).</FormDescription><FormMessage /></FormItem> )}/>
+                        </>}
+                    </div>
+                  </div>
                   
-                  <FormField control={deviceForm.control} name="autoIrrigation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Irrigation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger("irrigationThreshold"); }} /></FormControl> </FormItem> )}/>
-                  {deviceForm.watch("autoIrrigation") && <FormField control={deviceForm.control} name="irrigationThreshold" render={({ field }) => ( <FormItem><FormLabel>Irrigation Threshold (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Water when soil humidity drops below this (10-90%).</FormDescription><FormMessage /></FormItem> )}/>}
-                  
-                  <FormField control={deviceForm.control} name="autoVentilation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Ventilation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["temperatureThreshold", "temperatureFanOffThreshold"]); }} /></FormControl> </FormItem> )}/>
-                  {deviceForm.watch("autoVentilation") && <>
-                    <FormField control={deviceForm.control} name="temperatureThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp On (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan ON above this temp (0-50).</FormDescription><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="temperatureFanOffThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp Off (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan OFF below this temp (0-49).</FormDescription><FormMessage /></FormItem> )}/>
-                  </>}
-                  
-                  <Separator className="my-6" />
-                  <h3 className="text-lg font-medium text-foreground flex items-center"><BellRing className="mr-2 h-5 w-5" /> Notification Thresholds</h3>
-                  <FormDescription>Set the values that will trigger a critical notification.</FormDescription>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField control={deviceForm.control} name="notificationTemperatureHigh" render={({ field }) => ( <FormItem><FormLabel>High Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="notificationTemperatureLow" render={({ field }) => ( <FormItem><FormLabel>Low Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="notificationAirHumidityHigh" render={({ field }) => ( <FormItem><FormLabel>High Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="notificationAirHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="notificationSoilHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Soil Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                  <Separator />
+
+                  <div>
+                     <h3 className="text-lg font-medium text-foreground">Roof Control</h3>
+                     <div className="space-y-4 mt-2">
+                        <FormField control={deviceForm.control} name="autoRoofControl" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Roof Control</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["roofOpenTime", "roofCloseTime"]); }} /></FormControl> </FormItem> )}/>
+                        {deviceForm.watch("autoRoofControl") && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <FormField control={deviceForm.control} name="roofOpenTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Sun className="mr-2 h-4 w-4"/>Open Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to open the roof.</FormDescription><FormMessage /></FormItem> )}/>
+                                <FormField control={deviceForm.control} name="roofCloseTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Moon className="mr-2 h-4 w-4"/>Close Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to close the roof.</FormDescription><FormMessage /></FormItem> )}/>
+                            </div>
+                        )}
+                     </div>
+                  </div>
+
+                  <Separator />
+                  <div>
+                    <h3 className="text-lg font-medium text-foreground flex items-center"><BellRing className="mr-2 h-5 w-5" /> Notification Thresholds</h3>
+                    <FormDescription>Set the values that will trigger a critical notification.</FormDescription>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        <FormField control={deviceForm.control} name="notificationTemperatureHigh" render={({ field }) => ( <FormItem><FormLabel>High Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationTemperatureLow" render={({ field }) => ( <FormItem><FormLabel>Low Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationAirHumidityHigh" render={({ field }) => ( <FormItem><FormLabel>High Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationAirHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationSoilHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Soil Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                    </div>
                   </div>
                 </div>
               )}
