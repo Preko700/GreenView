@@ -9,16 +9,15 @@ import { TemperatureUnit } from '@/lib/types';
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
 async function addColumnIfNotExists(
-  db: Database,
+  db: Database<sqlite3.Database, sqlite3.Statement>,
   tableName: string,
   columnName: string,
   columnDefinition: string
 ) {
-  const column = await db.get(`PRAGMA table_info(${tableName})`).then(info => 
-    (info as any[]).find(col => col.name === columnName)
-  );
+  const columns = await db.all(`PRAGMA table_info(${tableName})`);
+  const columnExists = columns.some(col => col.name === columnName);
 
-  if (!column) {
+  if (!columnExists) {
     await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
   }
 }
@@ -126,7 +125,7 @@ export async function getDb() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId INTEGER NOT NULL,
         deviceId TEXT NOT NULL,
-        type TEXT NOT NULL, -- 'CRITICAL', 'WARNING', 'INFO'
+        type TEXT NOT NULL, -- 'CRITICAL_HIGH', 'CRITICAL_LOW', 'WARNING', 'INFO'
         message TEXT NOT NULL,
         isRead BOOLEAN DEFAULT FALSE,
         timestamp INTEGER NOT NULL,
