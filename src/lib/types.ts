@@ -149,6 +149,7 @@ export interface Notification {
 
 export interface AdminDeviceView {
   serialNumber: string;
+  userId: number;
   deviceName: string;
   userName: string;
   activationDate: number;

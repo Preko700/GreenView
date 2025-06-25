@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, RefreshCw, AlertTriangle, Inbox, HardDrive, Wrench, BookText } from 'lucide-react';
-import type { User, SupportTicket, AdminDeviceView, AdminServiceRequestView, AdminServiceLogView, Device } from '@/lib/types';
+import type { User, SupportTicket, AdminDeviceView, AdminServiceRequestView, AdminServiceLogView } from '@/lib/types';
 import { TicketStatus, ServiceRequestStatus } from '@/lib/types';
 import {
   Table,
@@ -52,28 +52,30 @@ export default function AdminPage() {
   const [serviceLogs, setServiceLogs] = useState<AdminServiceLogView[]>([]);
 
   // Loading and error states
-  const [isLoading, setIsLoading] = useState({ tickets: true, devices: true, requests: true, logs: true });
-  const [errors, setErrors] = useState({ tickets: null, devices: null, requests: null, logs: null });
+  const [isLoading, setIsLoading] = useState({ tickets: true, devices: true, requests: true, logs: true, formData: true });
+  const [errors, setErrors] = useState({ tickets: null, devices: null, requests: null, logs: null, formData: null });
   
   // States for Service Log Form
   const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [allDevices, setAllDevices] = useState<Device[]>([]);
 
-  const fetchData = useCallback(async (type: 'tickets' | 'devices' | 'requests' | 'logs' | 'form-data') => {
-    setIsLoading(prev => ({ ...prev, [type]: true }));
-    setErrors(prev => ({ ...prev, [type]: null }));
+  const fetchData = useCallback(async (type: 'tickets' | 'devices' | 'requests' | 'logs' | 'formData') => {
+    const stateKey = type === 'formData' ? 'formData' : type;
+    setIsLoading(prev => ({ ...prev, [stateKey]: true }));
+    setErrors(prev => ({ ...prev, [stateKey]: null }));
+
     try {
       let url = '';
       if (type === 'tickets') url = '/api/support/tickets';
       if (type === 'devices') url = '/api/admin/devices';
       if (type === 'requests') url = '/api/admin/service-requests';
       if (type === 'logs') url = '/api/admin/service-log';
-      if (type === 'form-data') { // Special case to fetch data for the log form
-          const usersRes = await fetch('/api/admin/users'); // Assuming this endpoint exists or will be created
-          const devicesRes = await fetch('/api/admin/devices'); // Re-use existing endpoint
-          if (!usersRes.ok || !devicesRes.ok) throw new Error("Failed to load form data.");
-          setAllUsers(await usersRes.json());
-          setAllDevices(await devicesRes.json());
+      
+      if (type === 'formData') {
+          const usersRes = await fetch('/api/admin/users');
+          if (!usersRes.ok) throw new Error("Failed to load user data for form.");
+          const usersData = await usersRes.json();
+          setAllUsers(usersData);
+          setIsLoading(prev => ({ ...prev, formData: false }));
           return;
       }
 
@@ -87,9 +89,11 @@ export default function AdminPage() {
       if (type === 'logs') setServiceLogs(data);
 
     } catch (err: any) {
-      setErrors(prev => ({ ...prev, [type]: err.message }));
+      setErrors(prev => ({ ...prev, [stateKey]: err.message }));
     } finally {
-      setIsLoading(prev => ({ ...prev, [type]: false }));
+      if (type !== 'formData') {
+        setIsLoading(prev => ({ ...prev, [stateKey]: false }));
+      }
     }
   }, []);
 
@@ -98,14 +102,36 @@ export default function AdminPage() {
     fetchData('devices');
     fetchData('requests');
     fetchData('logs');
-    // For now, let's assume we don't need all users/devices for log form yet
-    // to avoid creating new APIs immediately. We'll add it later.
+    fetchData('formData');
   }, [fetchData]);
   
   const logForm = useForm<z.infer<typeof serviceLogSchema>>({
     resolver: zodResolver(serviceLogSchema),
-    defaultValues: { technicianName: adminUser?.name || '' },
+    defaultValues: {
+      technicianName: adminUser?.name || '',
+      userId: '',
+      deviceId: '',
+      actionsTaken: '',
+      result: '',
+    },
   });
+
+  const deviceIdValue = logForm.watch('deviceId');
+
+  useEffect(() => {
+    if (adminUser?.name) {
+      logForm.setValue('technicianName', adminUser.name);
+    }
+  }, [adminUser, logForm]);
+
+  useEffect(() => {
+    if (deviceIdValue) {
+      const selectedDevice = devices.find(d => d.serialNumber === deviceIdValue);
+      if (selectedDevice && selectedDevice.userId) {
+        logForm.setValue('userId', selectedDevice.userId.toString(), { shouldValidate: true });
+      }
+    }
+  }, [deviceIdValue, devices, logForm]);
 
   const handleLogSubmit: SubmitHandler<z.infer<typeof serviceLogSchema>> = async (values) => {
     try {
@@ -117,7 +143,13 @@ export default function AdminPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to submit log entry.");
       toast({ title: "Log Entry Saved" });
-      logForm.reset({ technicianName: adminUser?.name || '' });
+      logForm.reset({
+        technicianName: adminUser?.name || '',
+        userId: '',
+        deviceId: '',
+        actionsTaken: '',
+        result: '',
+      });
       fetchData('logs'); // Refresh logs
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: 'destructive' });
@@ -248,8 +280,46 @@ export default function AdminPage() {
                 <form onSubmit={logForm.handleSubmit(handleLogSubmit)}>
                     <CardContent className="space-y-4">
                          <FormField control={logForm.control} name="technicianName" render={({ field }) => ( <FormItem><FormLabel>Technician Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
-                         <FormField control={logForm.control} name="userId" render={({ field }) => ( <FormItem><FormLabel>User</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select a user" /></SelectTrigger></FormControl><SelectContent><SelectItem value="1">Demo User (ID: 1)</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
-                         <FormField control={logForm.control} name="deviceId" render={({ field }) => ( <FormItem><FormLabel>Device</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select a device" /></SelectTrigger></FormControl><SelectContent><SelectItem value="GH-001">Balcony Garden (GH-001)</SelectItem></SelectContent></Select><FormMessage /></FormItem> )}/>
+                         <FormField control={logForm.control} name="deviceId" render={({ field }) => ( 
+                          <FormItem>
+                            <FormLabel>Device</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.devices}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={isLoading.devices ? "Loading devices..." : "Select a device"} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {!isLoading.devices && devices.map(device => (
+                                    <SelectItem key={device.serialNumber} value={device.serialNumber}>
+                                      {device.deviceName} ({device.serialNumber})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            <FormMessage />
+                          </FormItem> 
+                        )}/>
+                         <FormField control={logForm.control} name="userId" render={({ field }) => ( 
+                          <FormItem>
+                            <FormLabel>User</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.formData || !deviceIdValue}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder={isLoading.formData ? "Loading users..." : "Select a user"} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {!isLoading.formData && allUsers.map(user => (
+                                  <SelectItem key={user.id} value={user.id.toString()}>
+                                    {user.name} ({user.email})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem> 
+                        )}/>
                          <FormField control={logForm.control} name="actionsTaken" render={({ field }) => ( <FormItem><FormLabel>Actions Taken</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="result" render={({ field }) => ( <FormItem><FormLabel>Result</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                     </CardContent>

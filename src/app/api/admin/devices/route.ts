@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
         const devices: AdminDeviceView[] = await db.all(`
             SELECT 
                 d.serialNumber,
+                d.userId,
                 d.name as deviceName,
                 u.name as userName,
                 d.activationDate,
