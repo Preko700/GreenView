@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from 'react';
@@ -8,13 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, Phone, MessageSquare, HelpCircle } from 'lucide-react';
+import { Loader2, Send, Phone, MessageSquare, HelpCircle, ShieldCheck } from 'lucide-react';
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import Link from 'next/link';
 
 export default function SupportPage() {
   const { toast } = useToast();
@@ -26,19 +28,39 @@ export default function SupportPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name || !email || !subject || !message) {
+        toast({ title: "Incomplete Form", description: "Please fill out all fields.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsSubmitting(false);
-    toast({
-      title: "Message Sent!",
-      description: "Our support team will get back to you shortly.",
-    });
-    // Reset form
-    setName('');
-    setEmail('');
-    setSubject('');
-    setMessage('');
+    try {
+        const response = await fetch('/api/support/tickets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, subject, message }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.message || "Failed to submit ticket.");
+        }
+        toast({
+            title: "Ticket Submitted!",
+            description: "Our support team will get back to you shortly.",
+        });
+        // Reset form
+        setName('');
+        setEmail('');
+        setSubject('');
+        setMessage('');
+    } catch (error: any) {
+        toast({
+            title: "Submission Failed",
+            description: error.message,
+            variant: "destructive",
+        });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   return (
@@ -46,6 +68,14 @@ export default function SupportPage() {
       <PageHeader
         title="Support Center"
         description="Need help? Find answers to your questions or contact our support team."
+        action={
+          <Button asChild>
+            <Link href="/admin/tickets">
+              <ShieldCheck className="mr-2 h-4 w-4" />
+              Ticket Management
+            </Link>
+          </Button>
+        }
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

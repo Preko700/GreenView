@@ -1,4 +1,5 @@
 
+
 export interface User {
   id: number;
   name: string | null;
@@ -76,6 +77,16 @@ export interface Ticket {
   creationDate: number;
   assignedTechnician?: string;
   lastUpdateTimestamp: number;
+}
+
+export interface SupportTicket {
+  id: number;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: TicketStatus;
+  timestamp: number;
 }
 
 export enum TemperatureUnit {

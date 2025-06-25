@@ -18,6 +18,7 @@ async function addColumnIfNotExists(
   const columnExists = columns.some(col => col.name === columnName);
 
   if (!columnExists) {
+    console.log(`Adding column ${columnName} to table ${tableName}...`);
     await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
   }
 }
@@ -93,12 +94,10 @@ export async function getDb() {
       );
     `);
     
-    // Add columns for roof control if they don't exist
     await addColumnIfNotExists(db, 'device_settings', 'autoRoofControl', 'BOOLEAN DEFAULT FALSE');
     await addColumnIfNotExists(db, 'device_settings', 'roofOpenTime', `TEXT DEFAULT '07:00'`);
     await addColumnIfNotExists(db, 'device_settings', 'roofCloseTime', `TEXT DEFAULT '20:00'`);
 
-    // Add columns for notifications if they don't exist
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureLow', 'REAL DEFAULT 5');
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureHigh', 'REAL DEFAULT 35');
     await addColumnIfNotExists(db, 'device_settings', 'notificationSoilHumidityLow', 'REAL DEFAULT 20');
@@ -121,7 +120,6 @@ export async function getDb() {
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
     
-    // New notifications table
     await db.exec(`
       CREATE TABLE IF NOT EXISTS notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,6 +135,17 @@ export async function getDb() {
     `);
     await db.run('CREATE INDEX IF NOT EXISTS idx_notifications_userId_isRead ON notifications (userId, isRead, timestamp DESC);');
 
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS support_tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        message TEXT NOT NULL,
+        status TEXT DEFAULT 'PENDING',
+        timestamp INTEGER NOT NULL
+      );
+    `);
 
   }
   return db;
