@@ -219,7 +219,18 @@ export default function SettingsPage() {
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
-          deviceForm.reset(data);
+          
+          // Coalesce null/undefined values to prevent uncontrolled->controlled error
+          const formValues = {
+            ...data,
+            notificationTemperatureLow: data.notificationTemperatureLow ?? 5,
+            notificationTemperatureHigh: data.notificationTemperatureHigh ?? 35,
+            notificationSoilHumidityLow: data.notificationSoilHumidityLow ?? 20,
+            notificationAirHumidityLow: data.notificationAirHumidityLow ?? 30,
+            notificationAirHumidityHigh: data.notificationAirHumidityHigh ?? 80,
+          };
+          deviceForm.reset(formValues);
+
         } catch (error: any) {
           toast({ title: "Error", description: error.message, variant: "destructive" });
           console.error("Error fetching device settings:", error);
