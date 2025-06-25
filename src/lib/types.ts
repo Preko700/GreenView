@@ -147,3 +147,11 @@ export interface Notification {
   isRead: boolean;
   timestamp: number;
 }
+
+export interface AdminDeviceView {
+  serialNumber: string;
+  deviceName: string;
+  userName: string;
+  activationDate: number;
+  warrantyEndDate: number;
+}
