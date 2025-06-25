@@ -190,7 +190,8 @@ export default function MediaPage() {
         workers: 2,
         quality: 15,
         width: frameWidth,
-        height: frameHeight
+        height: frameHeight,
+        workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
       });
 
       gif.on('finished', (blob) => {
