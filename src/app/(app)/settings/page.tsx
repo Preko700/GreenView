@@ -219,7 +219,23 @@ export default function SettingsPage() {
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
-          deviceForm.reset(data);
+          // Sanitize data before resetting the form to prevent uncontrolled inputs.
+          // This ensures no `value` prop on an input is ever undefined or null.
+          deviceForm.reset({
+            measurementInterval: data.measurementInterval ?? 5,
+            autoIrrigation: data.autoIrrigation ?? true,
+            irrigationThreshold: data.irrigationThreshold ?? 30,
+            autoVentilation: data.autoVentilation ?? true,
+            temperatureThreshold: data.temperatureThreshold ?? 30,
+            temperatureFanOffThreshold: data.temperatureFanOffThreshold ?? 28,
+            photoCaptureInterval: data.photoCaptureInterval ?? 6,
+            temperatureUnit: data.temperatureUnit ?? TemperatureUnit.CELSIUS,
+            notificationTemperatureLow: data.notificationTemperatureLow ?? 5,
+            notificationTemperatureHigh: data.notificationTemperatureHigh ?? 35,
+            notificationSoilHumidityLow: data.notificationSoilHumidityLow ?? 20,
+            notificationAirHumidityLow: data.notificationAirHumidityLow ?? 30,
+            notificationAirHumidityHigh: data.notificationAirHumidityHigh ?? 80,
+          });
         } catch (error: any) {
           toast({ title: "Error", description: error.message, variant: "destructive" });
           console.error("Error fetching device settings:", error);
