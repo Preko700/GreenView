@@ -20,6 +20,7 @@ export async function getDb() {
     });
 
     await db.exec('PRAGMA journal_mode = WAL;');
+    await db.exec('PRAGMA foreign_keys = ON;'); // Enable foreign key constraints
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
@@ -52,6 +53,8 @@ export async function getDb() {
     `);
     
     await db.run('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices (userId);');
+    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
+
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
@@ -90,7 +93,23 @@ export async function getDb() {
 
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
-    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
+    
+    // New notifications table
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        deviceId TEXT NOT NULL,
+        type TEXT NOT NULL, -- 'CRITICAL', 'WARNING', 'INFO'
+        message TEXT NOT NULL,
+        isRead BOOLEAN DEFAULT FALSE,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
+      );
+    `);
+    await db.run('CREATE INDEX IF NOT EXISTS idx_notifications_userId_isRead ON notifications (userId, isRead, timestamp DESC);');
+
 
   }
   return db;

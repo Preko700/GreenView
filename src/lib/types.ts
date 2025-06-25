@@ -115,3 +115,15 @@ export interface NavItem {
   label?: string;
   description?: string;
 }
+
+export type NotificationType = 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'WARNING' | 'INFO';
+
+export interface Notification {
+  id: number;
+  userId: number;
+  deviceId: string;
+  type: NotificationType;
+  message: string;
+  isRead: boolean;
+  timestamp: number;
+}
