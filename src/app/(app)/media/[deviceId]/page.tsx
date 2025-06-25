@@ -158,8 +158,18 @@ export default function MediaPage() {
     setTimelapseUrl(null);
     setTimelapseError(null);
     setShowTimelapseDialog(true);
+    
+    let workerObjectURL: string | null = null;
 
     try {
+      const workerResponse = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+      if (!workerResponse.ok) {
+        throw new Error(`Failed to fetch gif.worker.js: ${workerResponse.statusText}`);
+      }
+      const workerScriptContent = await workerResponse.text();
+      const workerBlob = new Blob([workerScriptContent], { type: 'application/javascript' });
+      workerObjectURL = URL.createObjectURL(workerBlob);
+
       const sortedImages = [...images].sort((a, b) => a.timestamp - b.timestamp);
       
       const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -191,18 +201,20 @@ export default function MediaPage() {
         quality: 15,
         width: frameWidth,
         height: frameHeight,
-        workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+        workerScript: workerObjectURL,
       });
 
       gif.on('finished', (blob) => {
         const url = URL.createObjectURL(blob);
         setTimelapseUrl(url);
         setIsGeneratingTimelapse(false);
+        if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
       });
       
       gif.on('abort', () => {
          setTimelapseError("Timelapse generation was aborted.");
          setIsGeneratingTimelapse(false);
+         if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
       });
 
       for (const deviceImage of sortedImages) {
@@ -231,6 +243,7 @@ export default function MediaPage() {
       setTimelapseError(errorMessage);
       toast({ title: "Timelapse Error", description: errorMessage, variant: "destructive" });
       setIsGeneratingTimelapse(false);
+      if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
     }
   };
 
