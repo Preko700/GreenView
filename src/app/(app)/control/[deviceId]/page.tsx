@@ -10,7 +10,7 @@ import { SensorType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon, MoveUp, MoveDown } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -441,4 +441,3 @@ export default function ControlPage() {
     </div>
   );
 }
-
