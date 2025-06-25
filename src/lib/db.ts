@@ -89,11 +89,6 @@ export async function getDb() {
           requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualLightLevelReading BOOLEAN DEFAULT FALSE,
-          notificationTemperatureLow REAL DEFAULT 5,
-          notificationTemperatureHigh REAL DEFAULT 35,
-          notificationSoilHumidityLow REAL DEFAULT 20,
-          notificationAirHumidityLow REAL DEFAULT 30,
-          notificationAirHumidityHigh REAL DEFAULT 80,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -102,6 +97,13 @@ export async function getDb() {
     await addColumnIfNotExists(db, 'device_settings', 'autoRoofControl', 'BOOLEAN DEFAULT FALSE');
     await addColumnIfNotExists(db, 'device_settings', 'roofOpenTime', `TEXT DEFAULT '07:00'`);
     await addColumnIfNotExists(db, 'device_settings', 'roofCloseTime', `TEXT DEFAULT '20:00'`);
+
+    // Add columns for notifications if they don't exist
+    await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureLow', 'REAL DEFAULT 5');
+    await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureHigh', 'REAL DEFAULT 35');
+    await addColumnIfNotExists(db, 'device_settings', 'notificationSoilHumidityLow', 'REAL DEFAULT 20');
+    await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityLow', 'REAL DEFAULT 30');
+    await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityHigh', 'REAL DEFAULT 80');
 
 
     await db.exec(`
