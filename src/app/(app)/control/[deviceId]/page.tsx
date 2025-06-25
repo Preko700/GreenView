@@ -8,7 +8,7 @@ import { ControlCard } from '@/components/control/ControlCard';
 import type { Device, DeviceSettings, SensorType as AppSensorType } from '@/lib/types';
 import { SensorType } from '@/lib/types'; 
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon } from 'lucide-react'; 
+import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon, MoveUp, MoveDown } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import Link from 'next/link';
@@ -57,6 +57,7 @@ export default function ControlPage() {
   const [manualReadingLoadingStates, setManualReadingLoadingStates] = useState<ManualReadingLoadingStates>({});
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [roofControlLoading, setRoofControlLoading] = useState<'open' | 'close' | null>(null);
 
   const fetchDeviceAndSettings = useCallback(async () => {
     if (deviceId && user) {
@@ -169,6 +170,36 @@ export default function ControlPage() {
       toast({ title: "Error Toggling Actuator", description: error.message, variant: "destructive" });
     } finally {
       setActuatorLoadingStates(prev => ({ ...prev, [actuator]: false }));
+    }
+  };
+
+  const handleManualRoofControl = async (action: 'open' | 'close') => {
+    if (!device || !user) {
+        toast({ title: "Error", description: "Device or user context not available.", variant: "destructive" });
+        return;
+    }
+    
+    const isCurrentDeviceUsbConnected = isUsbConnected && usbHardwareId === currentDeviceHardwareId;
+
+    if (!isCurrentDeviceUsbConnected) {
+        toast({
+            title: "USB Connection Required",
+            description: "Manual roof control requires a direct USB connection to the device.",
+            variant: "destructive"
+        });
+        return;
+    }
+
+    setRoofControlLoading(action);
+
+    try {
+        await sendSerialCommand({ command: 'set_roof_state', state: action.toUpperCase() });
+        addUsbLog(`CONTROL: Comando directo USB 'set_roof_state' (${action.toUpperCase()}) enviado a ${currentDeviceHardwareId}.`);
+        toast({ title: "USB Command Sent", description: `Direct command to ${action} roof sent via USB.`});
+    } catch (error: any) {
+        toast({ title: `Error ${action === 'open' ? 'Opening' : 'Closing'} Roof`, description: error.message, variant: "destructive" });
+    } finally {
+        setRoofControlLoading(null);
     }
   };
 
@@ -320,6 +351,51 @@ export default function ControlPage() {
         )}
       </section>
 
+       <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-foreground/90">Manual Roof Control</h2>
+          <Card className="shadow-lg hover:shadow-xl transition-shadow">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 h-5 w-5 text-primary"><path d="M12 18l-6-6h12l-6 6z"/><path d="M12 6l6 6H6l6-6z" transform="rotate(90 12 12)"/></svg>
+                Roof Position
+              </CardTitle>
+              <CardDescription>
+                Manually open or close the greenhouse roof. Requires a direct USB connection.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col sm:flex-row gap-4">
+              <Button 
+                onClick={() => handleManualRoofControl('open')} 
+                disabled={!!roofControlLoading || !isCurrentDeviceUsbConnected}
+                className="w-full sm:w-auto"
+              >
+                {roofControlLoading === 'open' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MoveUp className="mr-2 h-4 w-4" />}
+                Open Roof
+              </Button>
+              <Button 
+                onClick={() => handleManualRoofControl('close')} 
+                disabled={!!roofControlLoading || !isCurrentDeviceUsbConnected}
+                className="w-full sm:w-auto"
+                variant="secondary"
+              >
+                {roofControlLoading === 'close' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MoveDown className="mr-2 h-4 w-4" />}
+                Close Roof
+              </Button>
+            </CardContent>
+            {!isCurrentDeviceUsbConnected && (
+                <CardFooter>
+                    <Alert variant="destructive" className="w-full">
+                        <AlertTriangle className="h-4 w-4" />
+                        <UiAlertTitle>USB Disconnected</UiAlertTitle>
+                        <AlertDescription>
+                            Connect the device via USB to enable manual roof control.
+                        </AlertDescription>
+                    </Alert>
+                </CardFooter>
+            )}
+          </Card>
+      </section>
+
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground/90">Request Manual Sensor Readings</h2>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -358,6 +434,7 @@ export default function ControlPage() {
           <CardContent className="space-y-3 text-sm">
             <div>Auto Irrigation: <span className={`font-semibold ${settings.autoIrrigation ? 'text-green-600' : 'text-red-600'}`}>{settings.autoIrrigation ? "Enabled" : "Disabled"}</span> {settings.autoIrrigation && `(Threshold: ${settings.irrigationThreshold}%)`}</div>
             <div>Auto Ventilation: <span className={`font-semibold ${settings.autoVentilation ? 'text-green-600' : 'text-red-600'}`}>{settings.autoVentilation ? "Enabled" : "Disabled"}</span> {settings.autoVentilation && `(Temp On: ${settings.temperatureThreshold}°${settings.temperatureUnit === 'CELSIUS' ? 'C' : 'F'}, Temp Off: ${settings.temperatureFanOffThreshold}°${settings.temperatureUnit === 'CELSIUS' ? 'C' : 'F'})`}</div>
+             <div>Auto Roof Control: <span className={`font-semibold ${settings.autoRoofControl ? 'text-green-600' : 'text-red-600'}`}>{settings.autoRoofControl ? "Enabled" : "Disabled"}</span> {settings.autoRoofControl && `(Open: ${settings.roofOpenTime}, Close: ${settings.roofCloseTime})`}</div>
           </CardContent>
         </Card>
       )}
