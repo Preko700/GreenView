@@ -132,7 +132,7 @@ export async function POST(
         return NextResponse.json({ message: 'Low air humidity alert threshold must be less than high air humidity alert threshold.' }, { status: 400 });
     }
 
-    await db.run(
+    const result = await db.run(
       `UPDATE device_settings SET 
         measurementInterval = ?, autoIrrigation = ?, irrigationThreshold = ?, 
         autoVentilation = ?, temperatureThreshold = ?, temperatureFanOffThreshold = ?, 
@@ -160,6 +160,10 @@ export async function POST(
       settingsToSave.roofCloseTime,
       currentDeviceId
     );
+
+    if (result.changes === 0) {
+      return NextResponse.json({ message: 'Device settings not found or no change was made.' }, { status: 404 });
+    }
 
     const updatedSettings = await db.get<DeviceSettings>('SELECT * FROM device_settings WHERE deviceId = ?', currentDeviceId);
      if (!updatedSettings) {
