@@ -101,9 +101,13 @@ export interface DeviceSettings {
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
   requestManualLightLevelReading?: boolean;
-  // Add other manual reading flags if needed, e.g., PH, WATER_LEVEL
-  // requestManualPhReading?: boolean;
-  // requestManualWaterLevelReading?: boolean;
+  
+  // Notification thresholds
+  notificationTemperatureLow: number;
+  notificationTemperatureHigh: number;
+  notificationSoilHumidityLow: number;
+  notificationAirHumidityLow: number;
+  notificationAirHumidityHigh: number;
 }
 
 export interface NavItem {

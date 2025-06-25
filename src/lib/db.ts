@@ -75,6 +75,11 @@ export async function getDb() {
           requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualLightLevelReading BOOLEAN DEFAULT FALSE,
+          notificationTemperatureLow REAL DEFAULT 5,
+          notificationTemperatureHigh REAL DEFAULT 35,
+          notificationSoilHumidityLow REAL DEFAULT 20,
+          notificationAirHumidityLow REAL DEFAULT 30,
+          notificationAirHumidityHigh REAL DEFAULT 80,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -141,4 +146,9 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   requestManualAirHumidityReading: false,
   requestManualSoilHumidityReading: false,
   requestManualLightLevelReading: false,
+  notificationTemperatureLow: 5,
+  notificationTemperatureHigh: 35,
+  notificationSoilHumidityLow: 20,
+  notificationAirHumidityLow: 30,
+  notificationAirHumidityHigh: 80,
 };
