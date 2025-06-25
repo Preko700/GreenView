@@ -1,5 +1,4 @@
 
-
 export interface User {
   id: number;
   name: string | null;
@@ -154,4 +153,42 @@ export interface AdminDeviceView {
   userName: string;
   activationDate: number;
   warrantyEndDate: number;
+}
+
+export enum ServiceRequestStatus {
+  PENDING = "PENDING",
+  IN_PROGRESS = "IN_PROGRESS",
+  COMPLETED = "COMPLETED",
+}
+
+export interface ServiceRequest {
+    id: number;
+    userId: number;
+    deviceId: string;
+    reason: string;
+    phoneNumber: string;
+    status: ServiceRequestStatus;
+    timestamp: number;
+}
+
+export interface AdminServiceRequestView extends ServiceRequest {
+    userName: string;
+    userEmail: string;
+    deviceName: string;
+}
+
+export interface ServiceLogEntry {
+    id: number;
+    technicianName: string;
+    userId: number;
+    deviceId: string;
+    serviceDate: number;
+    actionsTaken: string;
+    result: string;
+    timestamp: number;
+}
+
+export interface AdminServiceLogView extends ServiceLogEntry {
+    userName: string;
+    deviceName: string;
 }

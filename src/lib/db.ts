@@ -14,12 +14,21 @@ async function addColumnIfNotExists(
   columnName: string,
   columnDefinition: string
 ) {
-  const columns = await db.all(`PRAGMA table_info(${tableName})`);
-  const columnExists = columns.some(col => col.name === columnName);
+  try {
+    const columns = await db.all(`PRAGMA table_info(${tableName})`);
+    const columnExists = columns.some(col => col.name === columnName);
 
-  if (!columnExists) {
-    console.log(`Adding column ${columnName} to table ${tableName}...`);
-    await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+    if (!columnExists) {
+      console.log(`Adding column ${columnName} to table ${tableName}...`);
+      await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+    }
+  } catch (error: any) {
+    // This can happen if the table doesn't exist yet during initial setup.
+    // The table creation that follows will handle it.
+    if (!error.message.includes('no such table')) {
+      console.error(`Failed to check/add column ${columnName} to ${tableName}:`, error);
+      throw error;
+    }
   }
 }
 
@@ -144,6 +153,35 @@ export async function getDb() {
         message TEXT NOT NULL,
         status TEXT DEFAULT 'PENDING',
         timestamp INTEGER NOT NULL
+      );
+    `);
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS service_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        deviceId TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        phoneNumber TEXT NOT NULL,
+        status TEXT DEFAULT 'PENDING',
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
+      );
+    `);
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS service_log_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        technicianName TEXT NOT NULL,
+        userId INTEGER NOT NULL,
+        deviceId TEXT NOT NULL,
+        serviceDate INTEGER NOT NULL,
+        actionsTaken TEXT NOT NULL,
+        result TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
 
