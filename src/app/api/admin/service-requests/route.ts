@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
         
         const requests: AdminServiceRequestView[] = await db.all(`
             SELECT 
-                r.id, r.userId, r.deviceId, r.reason, r.phoneNumber, r.status, r.timestamp,
+                r.id, r.userId, r.deviceId, r.reason, r.phoneNumber, r.status, r.timestamp, r.notes,
                 u.name as userName,
                 u.email as userEmail,
                 d.name as deviceName
