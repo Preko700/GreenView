@@ -16,6 +16,12 @@ async function addColumnIfNotExists(
 ) {
   try {
     const columns = await db.all(`PRAGMA table_info(${tableName})`);
+    if (!Array.isArray(columns)) {
+        console.error(`Unexpected response from PRAGMA table_info(${tableName}):`, columns);
+        // Fallback to attempt adding the column anyway, as the table should exist.
+        await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+        return;
+    }
     const columnExists = columns.some(col => col.name === columnName);
 
     if (!columnExists) {
@@ -23,8 +29,6 @@ async function addColumnIfNotExists(
       await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
     }
   } catch (error: any) {
-    // This can happen if the table doesn't exist yet during initial setup.
-    // The table creation that follows will handle it.
     if (!error.message.includes('no such table')) {
       console.error(`Failed to check/add column ${columnName} to ${tableName}:`, error);
       throw error;
@@ -44,7 +48,7 @@ export async function getDb() {
     });
 
     await db.exec('PRAGMA journal_mode = WAL;');
-    await db.exec('PRAGMA foreign_keys = ON;'); // Enable foreign key constraints
+    await db.exec('PRAGMA foreign_keys = ON;');
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
@@ -106,13 +110,11 @@ export async function getDb() {
     await addColumnIfNotExists(db, 'device_settings', 'autoRoofControl', 'BOOLEAN DEFAULT FALSE');
     await addColumnIfNotExists(db, 'device_settings', 'roofOpenTime', `TEXT DEFAULT '07:00'`);
     await addColumnIfNotExists(db, 'device_settings', 'roofCloseTime', `TEXT DEFAULT '20:00'`);
-
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureLow', 'REAL DEFAULT 5');
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureHigh', 'REAL DEFAULT 35');
     await addColumnIfNotExists(db, 'device_settings', 'notificationSoilHumidityLow', 'REAL DEFAULT 20');
     await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityLow', 'REAL DEFAULT 30');
     await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityHigh', 'REAL DEFAULT 80');
-
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sensor_readings (
@@ -125,7 +127,6 @@ export async function getDb() {
         FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
-
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
     await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
     
@@ -134,7 +135,7 @@ export async function getDb() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId INTEGER NOT NULL,
         deviceId TEXT NOT NULL,
-        type TEXT NOT NULL, -- 'CRITICAL_HIGH', 'CRITICAL_LOW', 'WARNING', 'INFO'
+        type TEXT NOT NULL,
         message TEXT NOT NULL,
         isRead BOOLEAN DEFAULT FALSE,
         timestamp INTEGER NOT NULL,
@@ -165,6 +166,7 @@ export async function getDb() {
         phoneNumber TEXT NOT NULL,
         status TEXT DEFAULT 'PENDING',
         timestamp INTEGER NOT NULL,
+        notes TEXT,
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
@@ -180,11 +182,13 @@ export async function getDb() {
         actionsTaken TEXT NOT NULL,
         result TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
+        serviceRequestId INTEGER,
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE,
+        FOREIGN KEY (serviceRequestId) REFERENCES service_requests(id) ON DELETE SET NULL
       );
     `);
-
+    await db.run('CREATE INDEX IF NOT EXISTS idx_log_entries_serviceRequestId ON service_log_entries (serviceRequestId);');
   }
   return db;
 }

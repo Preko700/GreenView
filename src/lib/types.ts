@@ -21,7 +21,6 @@ export interface RegistrationCredentials extends EmailPasswordCredentials {
 export interface Device {
   serialNumber: string;
   hardwareIdentifier: string;
-  // userId is fetched alongside in API routes when needed
   name:string;
   plantType?: string | null;
   location?: string | null;
@@ -30,6 +29,7 @@ export interface Device {
   isActive: boolean;
   isPoweredByBattery: boolean;
   lastUpdateTimestamp?: number;
+  userId?: number; // Optional on base type, but present in most API responses
 }
 
 export enum SensorType {
@@ -39,13 +39,13 @@ export enum SensorType {
   PH = "PH",
   LIGHT = "LIGHT",
   WATER_LEVEL = "WATER_LEVEL",
-  DRAINAGE = "DRAINAGE", // Not in Arduino code yet, but keeping
+  DRAINAGE = "DRAINAGE",
 }
 
 export interface SensorReading {
-  id?: number; // Optional as it's auto-incremented
+  id?: number; 
   deviceId: string;
-  type: SensorType | string; // Allow string for flexibility if Arduino sends custom types
+  type: SensorType | string;
   value: number;
   unit?: string; 
   timestamp: number;
@@ -58,24 +58,13 @@ export interface DeviceImage {
   timestamp: number;
   isManualCapture: boolean;
   dataAiHint?: string;
-  source?: 'capture' | 'upload'; // To distinguish between captured and uploaded
+  source?: 'capture' | 'upload';
 }
 
 export enum TicketStatus {
   PENDING = "PENDING",
   IN_PROGRESS = "IN_PROGRESS",
   RESOLVED = "RESOLVED",
-}
-
-export interface Ticket {
-  id: string;
-  deviceId: string;
-  title: string;
-  description: string;
-  status: TicketStatus;
-  creationDate: number;
-  assignedTechnician?: string;
-  lastUpdateTimestamp: number;
 }
 
 export interface SupportTicket {
@@ -95,13 +84,13 @@ export enum TemperatureUnit {
 
 export interface DeviceSettings {
   deviceId: string;
-  measurementInterval: number; // minutes
+  measurementInterval: number;
   autoIrrigation: boolean;
   autoVentilation: boolean;
-  irrigationThreshold: number; // percentage
-  temperatureThreshold: number; // degrees
-  temperatureFanOffThreshold: number; // degrees
-  photoCaptureInterval: number; // hours
+  irrigationThreshold: number;
+  temperatureThreshold: number;
+  temperatureFanOffThreshold: number;
+  photoCaptureInterval: number;
   temperatureUnit: TemperatureUnit;
   desiredLightState: boolean;
   desiredFanState: boolean;
@@ -111,18 +100,14 @@ export interface DeviceSettings {
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
   requestManualLightLevelReading?: boolean;
-  
-  // Notification thresholds
   notificationTemperatureLow: number;
   notificationTemperatureHigh: number;
   notificationSoilHumidityLow: number;
   notificationAirHumidityLow: number;
   notificationAirHumidityHigh: number;
-
-  // Roof control
   autoRoofControl?: boolean;
-  roofOpenTime?: string; // HH:MM format
-  roofCloseTime?: string; // HH:MM format
+  roofOpenTime?: string;
+  roofCloseTime?: string;
 }
 
 export interface NavItem {
@@ -170,6 +155,7 @@ export interface ServiceRequest {
     phoneNumber: string;
     status: ServiceRequestStatus;
     timestamp: number;
+    notes?: string | null;
 }
 
 export interface AdminServiceRequestView extends ServiceRequest {
@@ -187,6 +173,7 @@ export interface ServiceLogEntry {
     actionsTaken: string;
     result: string;
     timestamp: number;
+    serviceRequestId?: number | null;
 }
 
 export interface AdminServiceLogView extends ServiceLogEntry {

@@ -1,25 +1,18 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, AlertTriangle, Inbox, HardDrive, Wrench, BookText } from 'lucide-react';
-import type { User, SupportTicket, AdminDeviceView, AdminServiceRequestView, AdminServiceLogView } from '@/lib/types';
+import { ArrowLeft, RefreshCw, AlertTriangle, Inbox, HardDrive, Wrench, BookText, ChevronDown, MoreHorizontal, MessageSquare, Phone, Edit, Plus } from 'lucide-react';
+import type { User, SupportTicket, AdminDeviceView, AdminServiceRequestView, AdminServiceLogView, ServiceRequest, ServiceLogEntry } from '@/lib/types';
 import { TicketStatus, ServiceRequestStatus } from '@/lib/types';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from 'next/navigation';
 import { useForm, type SubmitHandler } from 'react-hook-form';
@@ -31,11 +24,13 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const serviceLogSchema = z.object({
   technicianName: z.string().min(2, "Technician name is required"),
   userId: z.string().min(1, "User is required"),
   deviceId: z.string().min(1, "Device is required"),
+  serviceRequestId: z.string().optional(),
   actionsTaken: z.string().min(10, "Actions taken must be at least 10 characters"),
   result: z.string().min(5, "Result must be at least 5 characters"),
 });
@@ -45,95 +40,73 @@ export default function AdminPage() {
   const { user: adminUser } = useAuth();
   const { toast } = useToast();
   
-  // States for each data type
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [devices, setDevices] = useState<AdminDeviceView[]>([]);
   const [serviceRequests, setServiceRequests] = useState<AdminServiceRequestView[]>([]);
   const [serviceLogs, setServiceLogs] = useState<AdminServiceLogView[]>([]);
-
-  // Loading and error states
-  const [isLoading, setIsLoading] = useState({ tickets: true, devices: true, requests: true, logs: true, formData: true });
-  const [errors, setErrors] = useState({ tickets: null, devices: null, requests: null, logs: null, formData: null });
-  
-  // States for Service Log Form
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-  const fetchData = useCallback(async (type: 'tickets' | 'devices' | 'requests' | 'logs' | 'formData') => {
-    const stateKey = type === 'formData' ? 'formData' : type;
-    setIsLoading(prev => ({ ...prev, [stateKey]: true }));
-    setErrors(prev => ({ ...prev, [stateKey]: null }));
+  const [isLoading, setIsLoading] = useState({ all: true });
+  const [errors, setErrors] = useState({ all: null });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [detailItem, setDetailItem] = useState<SupportTicket | AdminServiceRequestView | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
+  const fetchData = useCallback(async () => {
+    setIsLoading({ all: true });
+    setErrors({ all: null });
     try {
-      let url = '';
-      if (type === 'tickets') url = '/api/support/tickets';
-      if (type === 'devices') url = '/api/admin/devices';
-      if (type === 'requests') url = '/api/admin/service-requests';
-      if (type === 'logs') url = '/api/admin/service-log';
-      
-      if (type === 'formData') {
-          const usersRes = await fetch('/api/admin/users');
-          if (!usersRes.ok) throw new Error("Failed to load user data for form.");
-          const usersData = await usersRes.json();
-          setAllUsers(usersData);
-          setIsLoading(prev => ({ ...prev, formData: false }));
-          return;
-      }
+      const [ticketsRes, devicesRes, requestsRes, logsRes, usersRes] = await Promise.all([
+        fetch('/api/support/tickets'),
+        fetch('/api/admin/devices'),
+        fetch('/api/admin/service-requests'),
+        fetch('/api/admin/service-log'),
+        fetch('/api/admin/users'),
+      ]);
+      if (!ticketsRes.ok) throw new Error('Failed to fetch tickets');
+      if (!devicesRes.ok) throw new Error('Failed to fetch devices');
+      if (!requestsRes.ok) throw new Error('Failed to fetch service requests');
+      if (!logsRes.ok) throw new Error('Failed to fetch service logs');
+      if (!usersRes.ok) throw new Error('Failed to fetch users');
 
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Failed to fetch ${type}`);
-      const data = await response.json();
-      
-      if (type === 'tickets') setTickets(data);
-      if (type === 'devices') setDevices(data);
-      if (type === 'requests') setServiceRequests(data);
-      if (type === 'logs') setServiceLogs(data);
-
+      setTickets(await ticketsRes.json());
+      setDevices(await devicesRes.json());
+      setServiceRequests(await requestsRes.json());
+      setServiceLogs(await logsRes.json());
+      setAllUsers(await usersRes.json());
     } catch (err: any) {
-      setErrors(prev => ({ ...prev, [stateKey]: err.message }));
+      setErrors({ all: err.message });
+      toast({ title: "Error", description: err.message, variant: 'destructive' });
     } finally {
-      if (type !== 'formData') {
-        setIsLoading(prev => ({ ...prev, [stateKey]: false }));
-      }
+      setIsLoading({ all: false });
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
-    fetchData('tickets');
-    fetchData('devices');
-    fetchData('requests');
-    fetchData('logs');
-    fetchData('formData');
+    fetchData();
   }, [fetchData]);
   
   const logForm = useForm<z.infer<typeof serviceLogSchema>>({
     resolver: zodResolver(serviceLogSchema),
-    defaultValues: {
-      technicianName: adminUser?.name || '',
-      userId: '',
-      deviceId: '',
-      actionsTaken: '',
-      result: '',
-    },
+    defaultValues: { technicianName: '', userId: '', deviceId: '', serviceRequestId: '', actionsTaken: '', result: '' },
   });
 
-  const deviceIdValue = logForm.watch('deviceId');
-
   useEffect(() => {
-    if (adminUser?.name) {
-      logForm.setValue('technicianName', adminUser.name);
-    }
+    if (adminUser?.name) logForm.setValue('technicianName', adminUser.name);
   }, [adminUser, logForm]);
 
+  const serviceRequestIdValue = logForm.watch('serviceRequestId');
   useEffect(() => {
-    if (deviceIdValue) {
-      const selectedDevice = devices.find(d => d.serialNumber === deviceIdValue);
-      if (selectedDevice && selectedDevice.userId) {
-        logForm.setValue('userId', selectedDevice.userId.toString(), { shouldValidate: true });
-      }
+    const selectedRequest = serviceRequests.find(r => r.id.toString() === serviceRequestIdValue);
+    if (selectedRequest) {
+      logForm.setValue('userId', selectedRequest.userId.toString());
+      logForm.setValue('deviceId', selectedRequest.deviceId);
     }
-  }, [deviceIdValue, devices, logForm]);
+  }, [serviceRequestIdValue, serviceRequests, logForm]);
 
   const handleLogSubmit: SubmitHandler<z.infer<typeof serviceLogSchema>> = async (values) => {
+    setIsSubmitting(true);
     try {
       const response = await fetch('/api/admin/service-log', {
         method: 'POST',
@@ -143,41 +116,49 @@ export default function AdminPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to submit log entry.");
       toast({ title: "Log Entry Saved" });
-      logForm.reset({
-        technicianName: adminUser?.name || '',
-        userId: '',
-        deviceId: '',
-        actionsTaken: '',
-        result: '',
-      });
-      fetchData('logs'); // Refresh logs
+      logForm.reset({ technicianName: adminUser?.name || '', userId: '', deviceId: '', serviceRequestId: '', actionsTaken: '', result: '' });
+      fetchData(); // Refresh all data
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-
-  const getStatusVariant = (status: TicketStatus | ServiceRequestStatus) => {
-    switch (status) {
-      case TicketStatus.PENDING:
-      case ServiceRequestStatus.PENDING:
-        return 'secondary';
-      case TicketStatus.IN_PROGRESS:
-      case ServiceRequestStatus.IN_PROGRESS:
-        return 'default';
-      case TicketStatus.RESOLVED:
-      case ServiceRequestStatus.COMPLETED:
-        return 'outline';
-      default: return 'secondary';
+  const handleStatusChange = async (type: 'ticket' | 'request', id: number, status: TicketStatus | ServiceRequestStatus) => {
+    const url = type === 'ticket' ? `/api/support/tickets/${id}` : `/api/admin/service-requests/${id}`;
+    try {
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to update status');
+      toast({ title: "Status Updated", description: `${type.charAt(0).toUpperCase() + type.slice(1)} #${id} status set to ${status}.` });
+      fetchData(); // Refresh all data
+    } catch (err: any) {
+      toast({ title: "Update Failed", description: err.message, variant: 'destructive' });
     }
   };
-  
+
+  const getStatusVariant = (status: TicketStatus | ServiceRequestStatus) => ({
+    [TicketStatus.PENDING]: 'secondary', [ServiceRequestStatus.PENDING]: 'secondary',
+    [TicketStatus.IN_PROGRESS]: 'default', [ServiceRequestStatus.IN_PROGRESS]: 'default',
+    [TicketStatus.RESOLVED]: 'outline', [ServiceRequestStatus.COMPLETED]: 'outline',
+  })[status] || 'secondary';
+
   const getWarrantyStatus = (warrantyEndDate: number) => {
     const now = Date.now();
     const threeMonths = 3 * 30 * 24 * 60 * 60 * 1000;
     if (now > warrantyEndDate) return { text: 'Expired', variant: 'destructive' as const };
     if (warrantyEndDate - now < threeMonths) return { text: 'Expires Soon', variant: 'secondary' as const };
     return { text: 'Active', variant: 'default' as const };
+  };
+
+  const openDetails = (item: SupportTicket | AdminServiceRequestView) => {
+    setDetailItem(item);
+    setIsDetailOpen(true);
   };
 
   const renderLoading = (count = 5) => <div className="space-y-2"> {[...Array(count)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)} </div>;
@@ -195,84 +176,93 @@ export default function AdminPage() {
       <PageHeader
         title="Admin & Support Center"
         description="Manage tickets, devices, service requests, and log entries."
-        action={ <Button onClick={() => router.push('/support')} variant="outline"> <ArrowLeft className="mr-2 h-4 w-4" /> Back to Support </Button> }
+        action={<Button onClick={() => router.push('/support')} variant="outline"> <ArrowLeft className="mr-2 h-4 w-4" /> Back to Support </Button>}
       />
       
+      {renderError(errors.all)}
+
       <Tabs defaultValue="tickets" className="w-full">
         <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
           <TabsTrigger value="tickets"><Inbox className="mr-2 h-4 w-4" />Support Tickets</TabsTrigger>
-          <TabsTrigger value="devices"><HardDrive className="mr-2 h-4 w-4" />Device Registry</TabsTrigger>
           <TabsTrigger value="requests"><Wrench className="mr-2 h-4 w-4" />Service Requests</TabsTrigger>
+          <TabsTrigger value="devices"><HardDrive className="mr-2 h-4 w-4" />Device Registry</TabsTrigger>
           <TabsTrigger value="logbook"><BookText className="mr-2 h-4 w-4" />Service Logbook</TabsTrigger>
         </TabsList>
         
         <TabsContent value="tickets" className="mt-4">
             <Card>
-                <CardHeader> <CardTitle>All Support Tickets</CardTitle> <CardDescription>{isLoading.tickets ? "Loading..." : `Found ${tickets.length} tickets.`}</CardDescription> </CardHeader>
+                <CardHeader> <CardTitle>All Support Tickets</CardTitle> <CardDescription>{isLoading.all ? "Loading..." : `Found ${tickets.length} tickets.`}</CardDescription> </CardHeader>
                 <CardContent>
-                    {renderError(errors.tickets)}
-                    {isLoading.tickets ? renderLoading() : tickets.length === 0 ? renderEmpty(Inbox, "No Tickets Found", "The support queue is empty.") : (
-                        <Table>
-                            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Subject</TableHead><TableHead>From</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                            <TableBody>
-                            {tickets.map((ticket) => (
+                    {isLoading.all ? renderLoading() : tickets.length === 0 ? renderEmpty(Inbox, "No Tickets Found", "The support queue is empty.") : (
+                        <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Subject</TableHead><TableHead>From</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                            <TableBody>{tickets.map((ticket) => (
                                 <TableRow key={ticket.id}>
-                                <TableCell>{format(new Date(ticket.timestamp), "MMM d, yyyy HH:mm")}</TableCell>
+                                <TableCell>{format(new Date(ticket.timestamp), "PPP p")}</TableCell>
                                 <TableCell className="font-medium">{ticket.subject}</TableCell>
                                 <TableCell>{ticket.email}</TableCell>
                                 <TableCell><Badge variant={getStatusVariant(ticket.status)}>{ticket.status.replace('_', ' ').toLowerCase()}</Badge></TableCell>
-                                <TableCell className="text-right"><Dialog><DialogTrigger asChild><Button variant="ghost" size="sm">View</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>{ticket.subject}</DialogTitle><DialogDescription>From: {ticket.name} ({ticket.email})</DialogDescription></DialogHeader><div className="my-4 p-4 bg-muted rounded-md">{ticket.message}</div></DialogContent></Dialog></TableCell>
+                                <TableCell className="text-right">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => openDetails(ticket)}><MessageSquare className="mr-2 h-4 w-4"/>View Details</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleStatusChange('ticket', ticket.id, TicketStatus.IN_PROGRESS)}>Set In Progress</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleStatusChange('ticket', ticket.id, TicketStatus.RESOLVED)}>Set Resolved</DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </TableCell>
                                 </TableRow>
-                            ))}
-                            </TableBody>
+                            ))}</TableBody>
                         </Table>
                     )}
                 </CardContent>
             </Card>
         </TabsContent>
         
-        <TabsContent value="devices" className="mt-4">
+        <TabsContent value="requests" className="mt-4">
             <Card>
-                <CardHeader><CardTitle>Registered Devices</CardTitle><CardDescription>{isLoading.devices ? "Loading..." : `Found ${devices.length} devices.`}</CardDescription></CardHeader>
+                <CardHeader><CardTitle>Service Requests</CardTitle><CardDescription>{isLoading.all ? "Loading..." : `Found ${serviceRequests.length} requests.`}</CardDescription></CardHeader>
                 <CardContent>
-                    {renderError(errors.devices)}
-                    {isLoading.devices ? renderLoading() : devices.length === 0 ? renderEmpty(HardDrive, "No Devices Found", "No devices registered in the system.") : (
-                        <Table>
-                            <TableHeader><TableRow><TableHead>Serial</TableHead><TableHead>Device Name</TableHead><TableHead>Owner</TableHead><TableHead>Warranty</TableHead></TableRow></TableHeader>
-                            <TableBody>
-                            {devices.map((device) => {
-                                const warranty = getWarrantyStatus(device.warrantyEndDate);
-                                return (<TableRow key={device.serialNumber}><TableCell>{device.serialNumber}</TableCell><TableCell>{device.deviceName}</TableCell><TableCell>{device.userName}</TableCell><TableCell><Badge variant={warranty.variant}>{warranty.text}</Badge></TableCell></TableRow>);
-                            })}
-                            </TableBody>
-                        </Table>
-                    )}
-                </CardContent>
-            </Card>
-        </TabsContent>
-        
-         <TabsContent value="requests" className="mt-4">
-            <Card>
-                <CardHeader><CardTitle>Service Requests</CardTitle><CardDescription>{isLoading.requests ? "Loading..." : `Found ${serviceRequests.length} requests.`}</CardDescription></CardHeader>
-                <CardContent>
-                    {renderError(errors.requests)}
-                    {isLoading.requests ? renderLoading() : serviceRequests.length === 0 ? renderEmpty(Wrench, "No Service Requests", "The service request queue is empty.") : (
-                        <Table>
-                            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Device</TableHead><TableHead>Reason</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                            <TableBody>
-                            {serviceRequests.map((req) => (<TableRow key={req.id}>
-                                <TableCell>{format(new Date(req.timestamp), "MMM d, yyyy HH:mm")}</TableCell>
+                    {isLoading.all ? renderLoading() : serviceRequests.length === 0 ? renderEmpty(Wrench, "No Service Requests", "The service request queue is empty.") : (
+                        <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Device</TableHead><TableHead>Reason</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                            <TableBody>{serviceRequests.map((req) => (<TableRow key={req.id}>
+                                <TableCell>{format(new Date(req.timestamp), "PPP p")}</TableCell>
                                 <TableCell>{req.userName}</TableCell><TableCell>{req.deviceName} ({req.deviceId})</TableCell>
                                 <TableCell>{req.reason}</TableCell><TableCell>{req.phoneNumber}</TableCell>
                                 <TableCell><Badge variant={getStatusVariant(req.status)}>{req.status.replace('_', ' ').toLowerCase()}</Badge></TableCell>
-                            </TableRow>))}
-                            </TableBody>
+                                <TableCell className="text-right">
+                                  <DropdownMenu>
+                                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => openDetails(req)}><Phone className="mr-2 h-4 w-4"/>View & Manage</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleStatusChange('request', req.id, ServiceRequestStatus.IN_PROGRESS)}>Set In Progress</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleStatusChange('request', req.id, ServiceRequestStatus.COMPLETED)}>Set Completed</DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </TableCell>
+                            </TableRow>))}</TableBody>
                         </Table>
                     )}
                 </CardContent>
             </Card>
         </TabsContent>
 
+        <TabsContent value="devices" className="mt-4">
+            <Card>
+                <CardHeader><CardTitle>Registered Devices</CardTitle><CardDescription>{isLoading.all ? "Loading..." : `Found ${devices.length} devices.`}</CardDescription></CardHeader>
+                <CardContent>
+                    {isLoading.all ? renderLoading() : devices.length === 0 ? renderEmpty(HardDrive, "No Devices Found", "No devices registered in the system.") : (
+                        <Table><TableHeader><TableRow><TableHead>Serial</TableHead><TableHead>Device Name</TableHead><TableHead>Owner</TableHead><TableHead>Warranty</TableHead></TableRow></TableHeader>
+                            <TableBody>{devices.map((device) => {
+                                const warranty = getWarrantyStatus(device.warrantyEndDate);
+                                return (<TableRow key={device.serialNumber}><TableCell>{device.serialNumber}</TableCell><TableCell>{device.deviceName}</TableCell><TableCell>{device.userName}</TableCell><TableCell><Badge variant={warranty.variant}>{warranty.text}</Badge></TableCell></TableRow>);
+                            })}</TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+        </TabsContent>
+        
         <TabsContent value="logbook" className="mt-4 space-y-6">
            <Card>
              <CardHeader><CardTitle>Create Service Log Entry</CardTitle></CardHeader>
@@ -280,78 +270,85 @@ export default function AdminPage() {
                 <form onSubmit={logForm.handleSubmit(handleLogSubmit)}>
                     <CardContent className="space-y-4">
                          <FormField control={logForm.control} name="technicianName" render={({ field }) => ( <FormItem><FormLabel>Technician Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                         <FormField control={logForm.control} name="serviceRequestId" render={({ field }) => ( 
+                           <FormItem><FormLabel>Link to Service Request (Optional)</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.all}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Select a service request to auto-fill" /></SelectTrigger></FormControl>
+                                <SelectContent>{!isLoading.all && serviceRequests.filter(r => r.status !== 'COMPLETED').map(r => (<SelectItem key={r.id} value={r.id.toString()}>{`#${r.id} - ${r.userName} (${r.reason})`}</SelectItem>))}</SelectContent>
+                              </Select><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="deviceId" render={({ field }) => ( 
-                          <FormItem>
-                            <FormLabel>Device</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.devices}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder={isLoading.devices ? "Loading devices..." : "Select a device"} />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {!isLoading.devices && devices.map(device => (
-                                    <SelectItem key={device.serialNumber} value={device.serialNumber}>
-                                      {device.deviceName} ({device.serialNumber})
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            <FormMessage />
-                          </FormItem> 
-                        )}/>
+                          <FormItem><FormLabel>Device</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.all || !!serviceRequestIdValue}>
+                                <FormControl><SelectTrigger><SelectValue placeholder={isLoading.all ? "Loading..." : "Select a device"} /></SelectTrigger></FormControl>
+                                <SelectContent>{!isLoading.all && devices.map(d => (<SelectItem key={d.serialNumber} value={d.serialNumber}>{`${d.deviceName} (${d.serialNumber})`}</SelectItem>))}</SelectContent>
+                              </Select><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="userId" render={({ field }) => ( 
-                          <FormItem>
-                            <FormLabel>User</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.formData || !deviceIdValue}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder={isLoading.formData ? "Loading users..." : "Select a user"} />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {!isLoading.formData && allUsers.map(user => (
-                                  <SelectItem key={user.id} value={user.id.toString()}>
-                                    {user.name} ({user.email})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem> 
-                        )}/>
+                          <FormItem><FormLabel>User</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.all || !!serviceRequestIdValue}>
+                              <FormControl><SelectTrigger><SelectValue placeholder={isLoading.all ? "Loading..." : "Select a user"} /></SelectTrigger></FormControl>
+                              <SelectContent>{!isLoading.all && allUsers.map(user => (<SelectItem key={user.id} value={user.id.toString()}>{`${user.name} (${user.email})`}</SelectItem>))}</SelectContent>
+                            </Select><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="actionsTaken" render={({ field }) => ( <FormItem><FormLabel>Actions Taken</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="result" render={({ field }) => ( <FormItem><FormLabel>Result</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )}/>
                     </CardContent>
-                    <CardFooter>
-                        <Button type="submit" disabled={logForm.formState.isSubmitting}>
-                          {logForm.formState.isSubmitting && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />} Save Log Entry
-                        </Button>
-                    </CardFooter>
+                    <CardFooter><Button type="submit" disabled={isSubmitting}>{isSubmitting && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />} Save Log Entry</Button></CardFooter>
                 </form>
              </Form>
            </Card>
            <Card>
-                <CardHeader><CardTitle>Service Log History</CardTitle><CardDescription>{isLoading.logs ? "Loading..." : `Found ${serviceLogs.length} log entries.`}</CardDescription></CardHeader>
+                <CardHeader><CardTitle>Service Log History</CardTitle><CardDescription>{isLoading.all ? "Loading..." : `Found ${serviceLogs.length} log entries.`}</CardDescription></CardHeader>
                 <CardContent>
-                    {renderError(errors.logs)}
-                    {isLoading.logs ? renderLoading() : serviceLogs.length === 0 ? renderEmpty(BookText, "No Log Entries Found", "The service logbook is empty.") : (
-                        <Table>
-                            <TableHeader><TableRow><TableHead>Service Date</TableHead><TableHead>Technician</TableHead><TableHead>User</TableHead><TableHead>Device</TableHead><TableHead>Result</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                            <TableBody>
-                            {serviceLogs.map((log) => (<TableRow key={log.id}>
+                    {isLoading.all ? renderLoading() : serviceLogs.length === 0 ? renderEmpty(BookText, "No Log Entries Found", "The service logbook is empty.") : (
+                        <Table><TableHeader><TableRow><TableHead>Service Date</TableHead><TableHead>Request ID</TableHead><TableHead>Technician</TableHead><TableHead>User</TableHead><TableHead>Device</TableHead><TableHead>Result</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                            <TableBody>{serviceLogs.map((log) => (<TableRow key={log.id}>
                                 <TableCell>{format(new Date(log.serviceDate), "PPP")}</TableCell>
+                                <TableCell>{log.serviceRequestId ? `#${log.serviceRequestId}` : 'N/A'}</TableCell>
                                 <TableCell>{log.technicianName}</TableCell><TableCell>{log.userName}</TableCell>
                                 <TableCell>{log.deviceName}</TableCell><TableCell>{log.result}</TableCell>
                                 <TableCell className="text-right"><Dialog><DialogTrigger asChild><Button variant="ghost" size="sm">View Actions</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Actions Taken</DialogTitle></DialogHeader><p className="py-4">{log.actionsTaken}</p></DialogContent></Dialog></TableCell>
-                            </TableRow>))}
-                            </TableBody>
+                            </TableRow>))}</TableBody>
                         </Table>
                     )}
                 </CardContent>
             </Card>
         </TabsContent>
       </Tabs>
+      
+      {/* Detail Dialog */}
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent className="sm:max-w-lg">
+          {detailItem && 'subject' in detailItem && ( // It's a SupportTicket
+            <>
+              <DialogHeader><DialogTitle>Ticket #{detailItem.id}: {detailItem.subject}</DialogTitle><DialogDescription>From: {detailItem.name} ({detailItem.email}) on {format(new Date(detailItem.timestamp), "PPP p")}</DialogDescription></DialogHeader>
+              <div className="my-4 p-4 bg-muted rounded-md"><p className="text-sm">{detailItem.message}</p></div>
+            </>
+          )}
+          {detailItem && 'reason' in detailItem && ( // It's a ServiceRequest
+            <>
+              <DialogHeader><DialogTitle>Service Request #{detailItem.id}</DialogTitle><DialogDescription>From: {detailItem.userName} ({detailItem.userEmail}) for device {detailItem.deviceName}</DialogDescription></DialogHeader>
+              <div className="space-y-4 my-4">
+                <div><p className="font-semibold text-sm">Reason:</p><p>{detailItem.reason}</p></div>
+                <div><p className="font-semibold text-sm">Contact Phone:</p><p>{detailItem.phoneNumber}</p></div>
+                {detailItem.notes && <div><p className="font-semibold text-sm">Internal Notes:</p><p className="text-sm p-2 bg-muted rounded">{detailItem.notes}</p></div>}
+                <div>
+                    <h4 className="font-semibold text-sm mb-2">Related Log Entries</h4>
+                    <div className="max-h-48 overflow-y-auto space-y-2 border p-2 rounded-md">
+                        {serviceLogs.filter(l => l.serviceRequestId === detailItem.id).length > 0 ? (
+                           serviceLogs.filter(l => l.serviceRequestId === detailItem.id).map(log => (
+                               <div key={log.id} className="text-xs bg-background p-2 rounded border">
+                                   <p><strong>{log.technicianName} on {format(new Date(log.serviceDate), "PPP")}:</strong> {log.result}</p>
+                                   <p className="text-muted-foreground mt-1">{log.actionsTaken}</p>
+                               </div>
+                           ))
+                        ) : (<p className="text-xs text-muted-foreground text-center p-4">No log entries linked to this request.</p>)}
+                    </div>
+                </div>
+              </div>
+            </>
+          )}
+          <DialogFooter><DialogClose asChild><Button type="button" variant="secondary">Close</Button></DialogClose></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
