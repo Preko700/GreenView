@@ -23,7 +23,7 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import GIFEncoder from 'gifencoder';
+import GIF from 'gif.js';
 
 
 export default function MediaPage() {
@@ -149,8 +149,8 @@ export default function MediaPage() {
   };
 
   const handleGenerateTimelapse = async () => {
-    if (!images.length) {
-      toast({ title: "No Images", description: "Please add images to the gallery first.", variant: "destructive" });
+    if (images.length < 2) {
+      toast({ title: "Not Enough Images", description: "You need at least two images to generate a timelapse.", variant: "destructive" });
       return;
     }
 
@@ -158,15 +158,27 @@ export default function MediaPage() {
     setTimelapseUrl(null);
     setTimelapseError(null);
     setShowTimelapseDialog(true);
+    
+    let workerObjectURL: string | null = null;
 
     try {
+      const workerResponse = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+      if (!workerResponse.ok) {
+        throw new Error(`Failed to fetch gif.worker.js: ${workerResponse.statusText}`);
+      }
+      const workerScriptContent = await workerResponse.text();
+      const workerBlob = new Blob([workerScriptContent], { type: 'application/javascript' });
+      workerObjectURL = URL.createObjectURL(workerBlob);
+
       const sortedImages = [...images].sort((a, b) => a.timestamp - b.timestamp);
       
       const firstImageElement = await new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new window.Image();
-        img.crossOrigin = "anonymous"; // Add crossOrigin attribute
+        if (!sortedImages[0].imageUrl.startsWith('data:')) {
+            img.crossOrigin = "anonymous";
+        }
         img.onload = () => resolve(img);
-        img.onerror = reject;
+        img.onerror = (err) => reject(new Error('Failed to load the first image for timelapse.'));
         img.src = sortedImages[0].imageUrl;
       });
 
@@ -184,53 +196,54 @@ export default function MediaPage() {
         }
       }
       
-      const encoder = new GIFEncoder(frameWidth, frameHeight);
-      encoder.start();
-      encoder.setRepeat(0); 
-      encoder.setDelay(300); 
-      encoder.setQuality(15); 
+      const gif = new GIF({
+        workers: 2,
+        quality: 15,
+        width: frameWidth,
+        height: frameHeight,
+        workerScript: workerObjectURL,
+      });
 
-      const canvas = document.createElement('canvas');
-      canvas.width = frameWidth;
-      canvas.height = frameHeight;
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        throw new Error("Could not get canvas context for timelapse generation.");
-      }
+      gif.on('finished', (blob) => {
+        const url = URL.createObjectURL(blob);
+        setTimelapseUrl(url);
+        setIsGeneratingTimelapse(false);
+        if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
+      });
       
+      gif.on('abort', () => {
+         setTimelapseError("Timelapse generation was aborted.");
+         setIsGeneratingTimelapse(false);
+         if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
+      });
+
       for (const deviceImage of sortedImages) {
-        await new Promise<void>((resolveFrame, rejectFrame) => {
+        await new Promise<void>((resolveFrame) => {
           const img = new window.Image();
-          if (!deviceImage.imageUrl.startsWith('data:')) { // Only set for external images
-            img.crossOrigin = "anonymous"; // Add crossOrigin attribute
+          if (!deviceImage.imageUrl.startsWith('data:')) {
+            img.crossOrigin = "anonymous";
           }
           img.onload = () => {
-            ctx.clearRect(0, 0, frameWidth, frameHeight);
-            ctx.drawImage(img, 0, 0, frameWidth, frameHeight);
-            encoder.addFrame(ctx);
+            gif.addFrame(img, { delay: 300, copy: true });
             resolveFrame();
           };
           img.onerror = (err) => {
-            console.error("Error loading image for timelapse frame:", deviceImage.imageUrl, err);
-            resolveFrame(); 
+            console.error("Error loading image for timelapse frame, skipping:", deviceImage.imageUrl, err);
+            resolveFrame(); // Skip broken frames
           };
           img.src = deviceImage.imageUrl;
         });
       }
 
-      encoder.finish();
-      const buffer = encoder.out.getData();
-      const blob = new Blob([new Uint8Array(buffer)], { type: 'image/gif' });
-      const url = URL.createObjectURL(blob);
-      setTimelapseUrl(url);
+      gif.render();
 
     } catch (error: any) {
-      console.error("Error generating timelapse:", error);
-      setTimelapseError(error.message || "An unknown error occurred while generating the timelapse.");
-      toast({ title: "Timelapse Error", description: error.message, variant: "destructive" });
-    } finally {
+      console.error("Error setting up timelapse generation:", error);
+      const errorMessage = error.message || "An unknown error occurred while generating the timelapse.";
+      setTimelapseError(errorMessage);
+      toast({ title: "Timelapse Error", description: errorMessage, variant: "destructive" });
       setIsGeneratingTimelapse(false);
+      if (workerObjectURL) URL.revokeObjectURL(workerObjectURL);
     }
   };
 
@@ -367,4 +380,3 @@ export default function MediaPage() {
     </div>
   );
 }
-

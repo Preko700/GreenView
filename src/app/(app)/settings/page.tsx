@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -11,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { mockUser } from '@/data/mockData'; 
 import type { User, Device, DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
-import { Loader2, Save, PlusCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, Save, PlusCircle, AlertTriangle, BellRing, Sun, Moon } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -31,10 +32,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector'; // Corrected import name
+import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector';
 
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
@@ -52,17 +54,33 @@ const deviceRegistrationSchema = z.object({
 });
 
 const deviceSettingsSchema = z.object({
+  // Automation settings
   measurementInterval: z.coerce.number().min(1, "Min 1").max(60, "Max 60"),
   autoIrrigation: z.boolean(),
   irrigationThreshold: z.coerce.number().min(10, "Min 10").max(90, "Max 90"),
   autoVentilation: z.boolean(),
   temperatureThreshold: z.coerce.number().min(0, "Min 0").max(50, "Max 50"),
-  temperatureFanOffThreshold: z.coerce.number().min(0, "Max 0").max(49, "Max 49"), // Corrected max for temp off
+  temperatureFanOffThreshold: z.coerce.number().min(0, "Min 0").max(49, "Max 49"),
   photoCaptureInterval: z.coerce.number().min(1, "Min 1").max(24, "Max 24"),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
-}).refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
+  // Notification settings
+  notificationTemperatureLow: z.coerce.number().min(-50).max(50),
+  notificationTemperatureHigh: z.coerce.number().min(-50).max(50),
+  notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
+  notificationAirHumidityLow: z.coerce.number().min(0).max(100),
+  notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
+})
+.refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
     message: "Ventilation Temp Off must be less than Temp On threshold.",
     path: ["temperatureFanOffThreshold"],
+})
+.refine(data => data.notificationTemperatureLow < data.notificationTemperatureHigh, {
+    message: "Low temp alert must be less than high temp alert.",
+    path: ["notificationTemperatureLow"],
+})
+.refine(data => data.notificationAirHumidityLow < data.notificationAirHumidityHigh, {
+    message: "Low air humidity alert must be less than high air humidity alert.",
+    path: ["notificationAirHumidityLow"],
 });
 
 
@@ -104,6 +122,11 @@ export default function SettingsPage() {
         temperatureFanOffThreshold: 28,
         photoCaptureInterval: 6,
         temperatureUnit: TemperatureUnit.CELSIUS,
+        notificationTemperatureLow: 5,
+        notificationTemperatureHigh: 35,
+        notificationSoilHumidityLow: 20,
+        notificationAirHumidityLow: 30,
+        notificationAirHumidityHigh: 80,
     }
   });
 
@@ -154,11 +177,7 @@ export default function SettingsPage() {
       } else if (data.length === 0) {
         setSelectedDeviceId(undefined);
         setCurrentDeviceSettings(null); 
-        deviceForm.reset({ 
-            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
-            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
-            temperatureUnit: TemperatureUnit.CELSIUS,
-        });
+        deviceForm.reset();
       }
     } catch (error: any) {
       if (!dbSchemaError) { 
@@ -200,34 +219,28 @@ export default function SettingsPage() {
           }
           const data: DeviceSettings = await response.json();
           setCurrentDeviceSettings(data);
-          deviceForm.reset({
-            measurementInterval: data.measurementInterval,
-            autoIrrigation: data.autoIrrigation,
-            irrigationThreshold: data.irrigationThreshold,
-            autoVentilation: data.autoVentilation,
-            temperatureThreshold: data.temperatureThreshold,
-            temperatureFanOffThreshold: data.temperatureFanOffThreshold,
-            photoCaptureInterval: data.photoCaptureInterval,
-            temperatureUnit: data.temperatureUnit,
-          });
+          
+          // Coalesce null/undefined values to prevent uncontrolled->controlled error
+          const formValues = {
+            ...data,
+            notificationTemperatureLow: data.notificationTemperatureLow ?? 5,
+            notificationTemperatureHigh: data.notificationTemperatureHigh ?? 35,
+            notificationSoilHumidityLow: data.notificationSoilHumidityLow ?? 20,
+            notificationAirHumidityLow: data.notificationAirHumidityLow ?? 30,
+            notificationAirHumidityHigh: data.notificationAirHumidityHigh ?? 80,
+          };
+          deviceForm.reset(formValues);
+
         } catch (error: any) {
           toast({ title: "Error", description: error.message, variant: "destructive" });
           console.error("Error fetching device settings:", error);
-          deviceForm.reset({ 
-            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
-            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
-            temperatureUnit: TemperatureUnit.CELSIUS,
-          });
+          deviceForm.reset();
         } finally {
           setIsDeviceSettingsLoading(false);
         }
       } else {
         setCurrentDeviceSettings(null);
-        deviceForm.reset({
-            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
-            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
-            temperatureUnit: TemperatureUnit.CELSIUS,
-        }); 
+        deviceForm.reset();
       }
     };
     
@@ -235,11 +248,7 @@ export default function SettingsPage() {
         fetchDeviceSettings();
     } else {
         setCurrentDeviceSettings(null);
-        deviceForm.reset({
-            measurementInterval: 5, autoIrrigation: true, irrigationThreshold: 30, autoVentilation: true,
-            temperatureThreshold: 30, temperatureFanOffThreshold: 28, photoCaptureInterval: 6,
-            temperatureUnit: TemperatureUnit.CELSIUS,
-        });
+        deviceForm.reset();
     }
   }, [selectedDeviceId, authUser, toast, deviceForm]);
 
@@ -418,19 +427,37 @@ export default function SettingsPage() {
               {selectedDeviceId && isDeviceSettingsLoading && <CardContent><Skeleton className="h-96 w-full mt-4" /></CardContent>}
               
               {selectedDeviceId && !isDeviceSettingsLoading && currentDeviceSettings && (
-                <div className="space-y-4 pt-4 border-t mt-4">
-                  <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min). Arduino will poll for this setting.</FormDescription> <FormMessage /> </FormItem> )}/>
-                  <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
-                  <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
-                  
-                  <FormField control={deviceForm.control} name="autoIrrigation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Irrigation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger("irrigationThreshold"); }} /></FormControl> </FormItem> )}/>
-                  {deviceForm.watch("autoIrrigation") && <FormField control={deviceForm.control} name="irrigationThreshold" render={({ field }) => ( <FormItem><FormLabel>Irrigation Threshold (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Water when soil humidity drops below this (10-90%).</FormDescription><FormMessage /></FormItem> )}/>}
-                  
-                  <FormField control={deviceForm.control} name="autoVentilation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Ventilation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["temperatureThreshold", "temperatureFanOffThreshold"]); }} /></FormControl> </FormItem> )}/>
-                  {deviceForm.watch("autoVentilation") && <>
-                    <FormField control={deviceForm.control} name="temperatureThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp On (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan ON above this temp (0-50).</FormDescription><FormMessage /></FormItem> )}/>
-                    <FormField control={deviceForm.control} name="temperatureFanOffThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp Off (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan OFF below this temp (0-49).</FormDescription><FormMessage /></FormItem> )}/>
-                  </>}
+                <div className="space-y-8 pt-4 border-t mt-4">
+                  <div>
+                    <h3 className="text-lg font-medium text-foreground">Automation Settings</h3>
+                    <div className="space-y-4 mt-2">
+                        <FormField control={deviceForm.control} name="measurementInterval" render={({ field }) => ( <FormItem> <FormLabel>Measurement Interval (minutes)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often sensors report data (1-60 min).</FormDescription> <FormMessage /> </FormItem> )}/>
+                        <FormField control={deviceForm.control} name="photoCaptureInterval" render={({ field }) => ( <FormItem> <FormLabel>Photo Capture Interval (hours)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormDescription>How often photos are taken (1-24 hours).</FormDescription> <FormMessage /> </FormItem> )}/>
+                        <FormField control={deviceForm.control} name="temperatureUnit" render={({ field }) => ( <FormItem> <FormLabel>Temperature Unit</FormLabel> <Select onValueChange={field.onChange} value={field.value || TemperatureUnit.CELSIUS}> <FormControl><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger></FormControl> <SelectContent> <SelectItem value={TemperatureUnit.CELSIUS}>Celsius (°C)</SelectItem> <SelectItem value={TemperatureUnit.FAHRENHEIT}>Fahrenheit (°F)</SelectItem> </SelectContent> </Select> <FormMessage /> </FormItem> )}/>
+                        
+                        <FormField control={deviceForm.control} name="autoIrrigation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Irrigation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger("irrigationThreshold"); }} /></FormControl> </FormItem> )}/>
+                        {deviceForm.watch("autoIrrigation") && <FormField control={deviceForm.control} name="irrigationThreshold" render={({ field }) => ( <FormItem><FormLabel>Irrigation Threshold (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Water when soil humidity drops below this (10-90%).</FormDescription><FormMessage /></FormItem> )}/>}
+                        
+                        <FormField control={deviceForm.control} name="autoVentilation" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <FormLabel>Auto Ventilation</FormLabel> <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["temperatureThreshold", "temperatureFanOffThreshold"]); }} /></FormControl> </FormItem> )}/>
+                        {deviceForm.watch("autoVentilation") && <>
+                            <FormField control={deviceForm.control} name="temperatureThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp On (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan ON above this temp (0-50).</FormDescription><FormMessage /></FormItem> )}/>
+                            <FormField control={deviceForm.control} name="temperatureFanOffThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp Off (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan OFF below this temp (0-49).</FormDescription><FormMessage /></FormItem> )}/>
+                        </>}
+                    </div>
+                  </div>
+
+                  <Separator />
+                  <div>
+                    <h3 className="text-lg font-medium text-foreground flex items-center"><BellRing className="mr-2 h-5 w-5" /> Notification Thresholds</h3>
+                    <FormDescription>Set the values that will trigger a critical notification.</FormDescription>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        <FormField control={deviceForm.control} name="notificationTemperatureHigh" render={({ field }) => ( <FormItem><FormLabel>High Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationTemperatureLow" render={({ field }) => ( <FormItem><FormLabel>Low Temperature Alert (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationAirHumidityHigh" render={({ field }) => ( <FormItem><FormLabel>High Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationAirHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Air Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                        <FormField control={deviceForm.control} name="notificationSoilHumidityLow" render={({ field }) => ( <FormItem><FormLabel>Low Soil Humidity Alert (%)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+                    </div>
+                  </div>
                 </div>
               )}
               

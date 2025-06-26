@@ -1,11 +1,12 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
-import type { Device, SensorReading } from '@/lib/types';
+import type { Device, DeviceSettings, SensorReading } from '@/lib/types';
 import { SensorType } from '@/lib/types';
 import { z } from 'zod';
+import type { Database } from 'sqlite';
+import type sqlite3 from 'sqlite3';
 
-// Extendido para incluir más sensores y hacerlos todos opcionales excepto hardwareId
 const sensorReadingSchema = z.object({
   hardwareId: z.string().min(1, "Hardware ID is required"),
   temperature: z.number().optional(),
@@ -17,6 +18,80 @@ const sensorReadingSchema = z.object({
 });
 
 type SensorPayload = z.infer<typeof sensorReadingSchema>;
+
+// --- Notification Logic ---
+const NOTIFICATION_COOLDOWN_MINUTES = 60; // Don't send the same alert more than once per hour
+
+async function checkAndNotify(
+    db: Database<sqlite3.Database, sqlite3.Statement>,
+    device: Device & { userId: number; name: string },
+    settings: DeviceSettings,
+    sensorType: SensorType,
+    value: number
+) {
+    let alertType: 'CRITICAL_HIGH' | 'CRITICAL_LOW' | null = null;
+    let message = '';
+    const formattedValue = value.toFixed(1);
+
+    switch (sensorType) {
+        case SensorType.TEMPERATURE:
+            if (value > settings.notificationTemperatureHigh) {
+                alertType = 'CRITICAL_HIGH';
+                message = `Critical alert for ${device.name}: Temperature is too high at ${formattedValue}°.`;
+            } else if (value < settings.notificationTemperatureLow) {
+                alertType = 'CRITICAL_LOW';
+                message = `Critical alert for ${device.name}: Temperature is too low at ${formattedValue}°.`;
+            }
+            break;
+        case SensorType.SOIL_HUMIDITY:
+            if (value < settings.notificationSoilHumidityLow) {
+                alertType = 'CRITICAL_LOW';
+                message = `Critical alert for ${device.name}: Soil humidity is too low at ${formattedValue}%.`;
+            }
+            break;
+        case SensorType.AIR_HUMIDITY:
+             if (value > settings.notificationAirHumidityHigh) {
+                alertType = 'CRITICAL_HIGH';
+                message = `Critical alert for ${device.name}: Air humidity is too high at ${formattedValue}%.`;
+            } else if (value < settings.notificationAirHumidityLow) {
+                alertType = 'CRITICAL_LOW';
+                message = `Critical alert for ${device.name}: Air humidity is too low at ${formattedValue}%.`;
+            }
+            break;
+        default:
+            return; // No notification rules for this sensor type
+    }
+
+    if (!alertType) return;
+    
+    // Check for recent notifications of the same type to avoid spam
+    const cooldownPeriod = Date.now() - NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000;
+    const recentNotification = await db.get(
+        `SELECT id FROM notifications WHERE deviceId = ? AND type = ? AND timestamp > ?`,
+        device.serialNumber,
+        alertType,
+        cooldownPeriod
+    );
+
+    if (recentNotification) {
+        console.log(`[NOTIFY] Cooldown active for ${alertType} on device ${device.serialNumber}. Skipping notification.`);
+        return;
+    }
+
+    console.log(`[NOTIFY] Creating notification: ${message}`);
+    await db.run(
+        'INSERT INTO notifications (userId, deviceId, type, message, timestamp, isRead) VALUES (?, ?, ?, ?, ?, ?)',
+        device.userId,
+        device.serialNumber,
+        alertType,
+        message,
+        Date.now(),
+        false
+    );
+}
+
+
+// --- Main API Logic ---
 
 export async function POST(request: NextRequest) {
   console.log('[API/ingest] Received POST request');
@@ -36,21 +111,30 @@ export async function POST(request: NextRequest) {
       }
       const { hardwareId, temperature, airHumidity, soilHumidity, lightLevel, waterLevel, ph } = validation.data;
 
-      const device = await db.get<Device>('SELECT serialNumber FROM devices WHERE hardwareIdentifier = ?', hardwareId);
+      const device = await db.get<Device & { userId: number; name: string }>('SELECT serialNumber, userId, name FROM devices WHERE hardwareIdentifier = ?', hardwareId);
       if (!device) {
         console.warn(`[API/ingest] Dispositivo con hardwareId ${hardwareId} no encontrado en DB. Descartando datos de sensores.`);
         return { success: false, error: `Device with hardwareId ${hardwareId} not found.` };
       }
       const deviceId = device.serialNumber;
 
+      const settings = await db.get<DeviceSettings>('SELECT * FROM device_settings WHERE deviceId = ?', deviceId);
+       if (!settings) {
+        console.warn(`[API/ingest] Settings not found for device ${deviceId}. Skipping notification checks.`);
+        // Continue to insert data even if settings are missing
+      }
+
       if (temperature !== undefined) {
         readingsToInsert.push({ deviceId, type: SensorType.TEMPERATURE, value: temperature, unit: '°C', timestamp: now });
+        if(settings) await checkAndNotify(db, device, settings, SensorType.TEMPERATURE, temperature);
       }
       if (airHumidity !== undefined) {
         readingsToInsert.push({ deviceId, type: SensorType.AIR_HUMIDITY, value: airHumidity, unit: '%', timestamp: now });
+        if(settings) await checkAndNotify(db, device, settings, SensorType.AIR_HUMIDITY, airHumidity);
       }
       if (soilHumidity !== undefined) {
         readingsToInsert.push({ deviceId, type: SensorType.SOIL_HUMIDITY, value: soilHumidity, unit: '%', timestamp: now });
+        if(settings) await checkAndNotify(db, device, settings, SensorType.SOIL_HUMIDITY, soilHumidity);
       }
       if (lightLevel !== undefined) {
         readingsToInsert.push({ deviceId, type: SensorType.LIGHT, value: lightLevel, unit: 'lux', timestamp: now });
@@ -137,4 +221,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'An internal server error occurred.', error: error.message, stack: error.stack }, { status: 500 });
   }
 }
-    

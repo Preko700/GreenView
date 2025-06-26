@@ -25,11 +25,12 @@ export async function GET(
     const deviceId = device.serialNumber;
 
     // Fetch all settings, including new requestManual... flags
-    const settings = await db.get<DeviceSettings & { requestManualLightLevelReading?: boolean } >( // Added LightLevel for explicit typing
+    const settings = await db.get<DeviceSettings & { requestManualLightLevelReading?: boolean } >(
       `SELECT 
         measurementInterval, desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState, 
         autoIrrigation, irrigationThreshold, autoVentilation, temperatureThreshold, temperatureFanOffThreshold,
-        requestManualTemperatureReading, requestManualAirHumidityReading, requestManualSoilHumidityReading, requestManualLightLevelReading
+        requestManualTemperatureReading, requestManualAirHumidityReading, requestManualSoilHumidityReading, requestManualLightLevelReading,
+        autoRoofControl, roofOpenTime, roofCloseTime
       FROM device_settings WHERE deviceId = ?`,
       deviceId
     );
@@ -39,7 +40,7 @@ export async function GET(
     }
 
     const mapStateToCommand = (state: boolean | undefined | null) => {
-      if (state === undefined || state === null) return null; // Or handle as "NO_CHANGE" if Arduino expects that
+      if (state === undefined || state === null) return null;
       return state ? "ON" : "OFF";
     };
 
@@ -50,11 +51,8 @@ export async function GET(
     if (settings.requestManualAirHumidityReading) manualReadRequests.push(SensorType.AIR_HUMIDITY);
     if (settings.requestManualSoilHumidityReading) manualReadRequests.push(SensorType.SOIL_HUMIDITY);
     if (settings.requestManualLightLevelReading) manualReadRequests.push(SensorType.LIGHT);
-    // Add other sensors here if supported by Arduino for manual read
-
+    
     // Reset flags in database after fetching them
-    // It's important this happens *after* we've decided to include them in manualReadRequests
-    // and *before* sending the response to Arduino.
     if (manualReadRequests.length > 0) {
       const updates: string[] = [];
       if (settings.requestManualTemperatureReading) updates.push('requestManualTemperatureReading = FALSE');
@@ -74,10 +72,9 @@ export async function GET(
       autoVentilationEnabled: !!settings.autoVentilation,
       temperatureOnThresholdCelsius: settings.temperatureThreshold,
       temperatureOffThresholdCelsius: settings.temperatureFanOffThreshold,
-      // Only include actuator commands if they are explicitly set (not undefined/null)
-      // This allows Arduino to maintain its current state if no command is sent.
-      // Or, if Arduino expects explicit ON/OFF, mapStateToCommand should handle nulls to a default (e.g., "OFF" or "NO_CHANGE").
-      // Assuming for now that null means "no change requested by user via manual toggle".
+      autoRoofEnabled: !!settings.autoRoofControl,
+      roofOpenTime: settings.roofOpenTime,
+      roofCloseTime: settings.roofCloseTime,
       lightCommand: mapStateToCommand(settings.desiredLightState),
       fanCommand: mapStateToCommand(settings.desiredFanState),
       irrigationCommand: mapStateToCommand(settings.desiredIrrigationState),

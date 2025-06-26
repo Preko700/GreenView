@@ -21,8 +21,7 @@ export interface RegistrationCredentials extends EmailPasswordCredentials {
 export interface Device {
   serialNumber: string;
   hardwareIdentifier: string;
-  // userId is fetched alongside in API routes when needed
-  name: string;
+  name:string;
   plantType?: string | null;
   location?: string | null;
   activationDate: number;
@@ -30,6 +29,7 @@ export interface Device {
   isActive: boolean;
   isPoweredByBattery: boolean;
   lastUpdateTimestamp?: number;
+  userId?: number; // Optional on base type, but present in most API responses
 }
 
 export enum SensorType {
@@ -39,13 +39,13 @@ export enum SensorType {
   PH = "PH",
   LIGHT = "LIGHT",
   WATER_LEVEL = "WATER_LEVEL",
-  DRAINAGE = "DRAINAGE", // Not in Arduino code yet, but keeping
+  DRAINAGE = "DRAINAGE",
 }
 
 export interface SensorReading {
-  id?: number; // Optional as it's auto-incremented
+  id?: number; 
   deviceId: string;
-  type: SensorType | string; // Allow string for flexibility if Arduino sends custom types
+  type: SensorType | string;
   value: number;
   unit?: string; 
   timestamp: number;
@@ -58,7 +58,7 @@ export interface DeviceImage {
   timestamp: number;
   isManualCapture: boolean;
   dataAiHint?: string;
-  source?: 'capture' | 'upload'; // To distinguish between captured and uploaded
+  source?: 'capture' | 'upload';
 }
 
 export enum TicketStatus {
@@ -67,15 +67,14 @@ export enum TicketStatus {
   RESOLVED = "RESOLVED",
 }
 
-export interface Ticket {
-  id: string;
-  deviceId: string;
-  title: string;
-  description: string;
+export interface SupportTicket {
+  id: number;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
   status: TicketStatus;
-  creationDate: number;
-  assignedTechnician?: string;
-  lastUpdateTimestamp: number;
+  timestamp: number;
 }
 
 export enum TemperatureUnit {
@@ -85,25 +84,26 @@ export enum TemperatureUnit {
 
 export interface DeviceSettings {
   deviceId: string;
-  measurementInterval: number; // minutes
+  measurementInterval: number;
   autoIrrigation: boolean;
   autoVentilation: boolean;
-  irrigationThreshold: number; // percentage
-  temperatureThreshold: number; // degrees
-  temperatureFanOffThreshold: number; // degrees
-  photoCaptureInterval: number; // hours
+  irrigationThreshold: number;
+  temperatureThreshold: number;
+  temperatureFanOffThreshold: number;
+  photoCaptureInterval: number;
   temperatureUnit: TemperatureUnit;
   desiredLightState: boolean;
   desiredFanState: boolean;
   desiredIrrigationState: boolean;
-  desiredUvLightState: boolean;
   requestManualTemperatureReading?: boolean;
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
   requestManualLightLevelReading?: boolean;
-  // Add other manual reading flags if needed, e.g., PH, WATER_LEVEL
-  // requestManualPhReading?: boolean;
-  // requestManualWaterLevelReading?: boolean;
+  notificationTemperatureLow: number;
+  notificationTemperatureHigh: number;
+  notificationSoilHumidityLow: number;
+  notificationAirHumidityLow: number;
+  notificationAirHumidityHigh: number;
 }
 
 export interface NavItem {
@@ -114,4 +114,68 @@ export interface NavItem {
   external?: boolean;
   label?: string;
   description?: string;
+}
+
+export type NotificationType = 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'WARNING' | 'INFO';
+
+export interface Notification {
+  id: number;
+  userId: number;
+  deviceId: string;
+  type: NotificationType;
+  message: string;
+  isRead: boolean;
+  timestamp: number;
+}
+
+export interface AdminDeviceView {
+  serialNumber: string;
+  userId: number;
+  deviceName: string;
+  userName: string | null;
+  activationDate: number;
+  warrantyEndDate: number | null;
+}
+
+// --- Types for Service Request & Log ---
+
+export enum ServiceRequestStatus {
+  PENDING = 'PENDING',
+  SCHEDULED = 'SCHEDULED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export interface ServiceRequest {
+  id: number;
+  userId: number;
+  deviceId: string;
+  reason: string;
+  phoneNumber: string;
+  status: ServiceRequestStatus;
+  timestamp: number;
+  notes?: string | null;
+}
+
+export interface AdminServiceRequestView extends ServiceRequest {
+    userName: string | null;
+    userEmail: string | null;
+    deviceName: string | null;
+}
+
+export interface ServiceLogEntry {
+  id: number;
+  technicianName: string;
+  userId: number;
+  deviceId: string;
+  serviceDate: number;
+  actionsTaken: string;
+  result: string;
+  serviceRequestId?: number | null;
+  timestamp: number;
+}
+
+export interface AdminServiceLogView extends ServiceLogEntry {
+    userName: string | null;
+    deviceName: string | null;
 }

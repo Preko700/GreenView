@@ -7,6 +7,7 @@ import { z } from "zod";
 
 // This schema is for validating data sent from the settings page
 const deviceSettingsUpdateSchema = z.object({
+  // Automation settings
   measurementInterval: z.coerce.number().min(1).max(60),
   autoIrrigation: z.boolean(),
   irrigationThreshold: z.coerce.number().min(10).max(90),
@@ -15,6 +16,13 @@ const deviceSettingsUpdateSchema = z.object({
   temperatureFanOffThreshold: z.coerce.number().min(0).max(49),
   photoCaptureInterval: z.coerce.number().min(1).max(24),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
+  // Notification settings
+  notificationTemperatureLow: z.coerce.number().min(-50).max(50),
+  notificationTemperatureHigh: z.coerce.number().min(-50).max(50),
+  notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
+  notificationAirHumidityLow: z.coerce.number().min(0).max(100),
+  notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
+  // Auth
   userId: z.number().int().positive("User ID is required in request body for saving settings"), 
 });
 
@@ -46,7 +54,7 @@ export async function GET(
         return NextResponse.json({ message: 'Device not found or not authorized for this user' }, { status: 403 });
     }
 
-    const settingsRow = await db.get(
+    const settingsRow = await db.get<DeviceSettings>(
       'SELECT * FROM device_settings WHERE deviceId = ?',
       deviceId
     );
@@ -54,19 +62,14 @@ export async function GET(
     if (settingsRow) {
       // Ensure boolean values are correctly interpreted from DB (0/1)
       const typedSettings: DeviceSettings = {
+        ...defaultDeviceSettings, // Start with defaults to ensure all keys are present
+        ...settingsRow,
         deviceId: settingsRow.deviceId,
-        measurementInterval: settingsRow.measurementInterval,
         autoIrrigation: !!settingsRow.autoIrrigation,
-        irrigationThreshold: settingsRow.irrigationThreshold,
         autoVentilation: !!settingsRow.autoVentilation,
-        temperatureThreshold: settingsRow.temperatureThreshold,
-        temperatureFanOffThreshold: settingsRow.temperatureFanOffThreshold,
-        photoCaptureInterval: settingsRow.photoCaptureInterval,
-        temperatureUnit: settingsRow.temperatureUnit as TemperatureUnit,
         desiredLightState: !!settingsRow.desiredLightState,
         desiredFanState: !!settingsRow.desiredFanState,
         desiredIrrigationState: !!settingsRow.desiredIrrigationState,
-        desiredUvLightState: !!settingsRow.desiredUvLightState,
       };
       return NextResponse.json(typedSettings, { status: 200 });
     } else {
@@ -74,7 +77,7 @@ export async function GET(
       // But as a fallback, return full default structure
       const fullDefaults: DeviceSettings = {
         deviceId,
-        ...defaultDeviceSettings // This now includes desired states as false
+        ...defaultDeviceSettings
       };
       return NextResponse.json(fullDefaults, { status: 200 });
     }
@@ -88,7 +91,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { deviceId: string } }
 ) {
-  const currentDeviceId = params.deviceId; // Renamed to avoid conflict with deviceId in body
+  const currentDeviceId = params.deviceId; 
 
   if (!currentDeviceId) {
     return NextResponse.json({ message: 'deviceId parameter is required' }, { status: 400 });
@@ -103,8 +106,6 @@ export async function POST(
       return NextResponse.json({ message: 'Invalid input', errors: validation.error.format() }, { status: 400 });
     }
     
-    // Exclude userId from settingsToSave as it's only for auth
-    // desired...State fields are NOT updated here; they are managed by /api/device-control
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { userId, ...settingsToSave } = validation.data;
 
@@ -118,14 +119,21 @@ export async function POST(
     if (settingsToSave.temperatureFanOffThreshold >= settingsToSave.temperatureThreshold) {
         return NextResponse.json({ message: 'Ventilation Temp Off threshold must be less than Ventilation Temp On threshold.' }, { status: 400 });
     }
+    if (settingsToSave.notificationTemperatureLow >= settingsToSave.notificationTemperatureHigh) {
+        return NextResponse.json({ message: 'Low temperature alert threshold must be less than high temperature alert threshold.' }, { status: 400 });
+    }
+     if (settingsToSave.notificationAirHumidityLow >= settingsToSave.notificationAirHumidityHigh) {
+        return NextResponse.json({ message: 'Low air humidity alert threshold must be less than high air humidity alert threshold.' }, { status: 400 });
+    }
 
-    // Update only the fields relevant to user-configurable settings
-    // desired...State fields are intentionally omitted here.
-    await db.run(
+    const result = await db.run(
       `UPDATE device_settings SET 
         measurementInterval = ?, autoIrrigation = ?, irrigationThreshold = ?, 
         autoVentilation = ?, temperatureThreshold = ?, temperatureFanOffThreshold = ?, 
-        photoCaptureInterval = ?, temperatureUnit = ?
+        photoCaptureInterval = ?, temperatureUnit = ?,
+        notificationTemperatureLow = ?, notificationTemperatureHigh = ?,
+        notificationSoilHumidityLow = ?, notificationAirHumidityLow = ?,
+        notificationAirHumidityHigh = ?
       WHERE deviceId = ?`,
       settingsToSave.measurementInterval,
       settingsToSave.autoIrrigation,
@@ -135,28 +143,30 @@ export async function POST(
       settingsToSave.temperatureFanOffThreshold,
       settingsToSave.photoCaptureInterval,
       settingsToSave.temperatureUnit,
+      settingsToSave.notificationTemperatureLow,
+      settingsToSave.notificationTemperatureHigh,
+      settingsToSave.notificationSoilHumidityLow,
+      settingsToSave.notificationAirHumidityLow,
+      settingsToSave.notificationAirHumidityHigh,
       currentDeviceId
     );
 
-    // Fetch the complete updated settings to return, including desired states which were not modified by this call
-    const updatedSettings = await db.get('SELECT * FROM device_settings WHERE deviceId = ?', currentDeviceId);
+    if (result.changes === 0) {
+      return NextResponse.json({ message: 'Device settings not found or no change was made.' }, { status: 404 });
+    }
+
+    const updatedSettings = await db.get<DeviceSettings>('SELECT * FROM device_settings WHERE deviceId = ?', currentDeviceId);
      if (!updatedSettings) {
         return NextResponse.json({ message: 'Failed to retrieve updated settings' }, { status: 500 });
     }
-     const typedUpdatedSettings: DeviceSettings = {
-        deviceId: updatedSettings.deviceId,
-        measurementInterval: updatedSettings.measurementInterval,
+    
+    const typedUpdatedSettings: DeviceSettings = {
+        ...updatedSettings,
         autoIrrigation: !!updatedSettings.autoIrrigation,
-        irrigationThreshold: updatedSettings.irrigationThreshold,
         autoVentilation: !!updatedSettings.autoVentilation,
-        temperatureThreshold: updatedSettings.temperatureThreshold,
-        temperatureFanOffThreshold: updatedSettings.temperatureFanOffThreshold,
-        photoCaptureInterval: updatedSettings.photoCaptureInterval,
-        temperatureUnit: updatedSettings.temperatureUnit as TemperatureUnit,
         desiredLightState: !!updatedSettings.desiredLightState,
         desiredFanState: !!updatedSettings.desiredFanState,
         desiredIrrigationState: !!updatedSettings.desiredIrrigationState,
-        desiredUvLightState: !!updatedSettings.desiredUvLightState,
       };
 
 

@@ -10,7 +10,7 @@ import { SensorType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -21,7 +21,6 @@ interface ControlLoadingStates {
   light: boolean;
   fan: boolean;
   irrigation: boolean;
-  uvLight: boolean;
 }
 
 interface ManualReadingLoadingStates {
@@ -52,7 +51,6 @@ export default function ControlPage() {
     light: false,
     fan: false,
     irrigation: false,
-    uvLight: false,
   });
   const [manualReadingLoadingStates, setManualReadingLoadingStates] = useState<ManualReadingLoadingStates>({});
   const [isPageLoading, setIsPageLoading] = useState(true);
@@ -148,14 +146,13 @@ export default function ControlPage() {
       if (isCurrentDeviceUsbConnected) {
         let commandName = '';
         switch(actuator) {
-          case 'light': commandName = 'set_light_state'; break;
-          case 'fan': commandName = 'set_fan_state'; break;
-          case 'irrigation': commandName = 'set_irrigation_state'; break;
-          case 'uvLight': commandName = 'set_uvlight_state'; break;
+          case 'light': commandName = 'set_led'; break;
+          case 'fan': commandName = 'set_fan'; break;
+          case 'irrigation': commandName = 'set_valve'; break;
         }
         if (commandName) {
-          await sendSerialCommand({ command: commandName, state: newState ? "ON" : "OFF" });
-          addUsbLog(`CONTROL: Comando directo USB '${commandName}' enviado (${newState ? "ON" : "OFF"}) a ${currentDeviceHardwareId}.`);
+          await sendSerialCommand({ command: commandName, state: newState ? 1 : 0 });
+          addUsbLog(`CONTROL: Comando directo USB '${commandName}' enviado (estado: ${newState ? 1 : 0}) a ${currentDeviceHardwareId}.`);
           toast({ title: "USB Command Sent", description: `Direct command to ${actuator} (${newState ? "ON" : "OFF"}) sent via USB.`});
         }
       } else if (isUsbConnected && usbHardwareId !== currentDeviceHardwareId) {
@@ -233,14 +230,13 @@ export default function ControlPage() {
         </div>
         <Skeleton className="h-6 w-2/5" />
         
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={`actuator-skl-${i}`} className="h-48 w-full" />)}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={`actuator-skl-${i}`} className="h-48 w-full" />)}
         </div>
         <Skeleton className="h-8 w-1/3 mt-4 mb-2" />
          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {[...Array(SENSOR_TYPES_FOR_MANUAL_READING.length)].map((_, i) => <Skeleton key={`sensor-req-skl-${i}`} className="h-32 w-full" />)}
         </div>
-        <Skeleton className="h-40 w-full mt-6" /> 
       </div>
     );
   }
@@ -307,15 +303,14 @@ export default function ControlPage() {
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground/90">Actuator Controls</h2>
         {settings ? (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             <ControlCard title="Main Light" icon={Lightbulb} isActive={settings.desiredLightState} isLoading={actuatorLoadingStates.light} onToggle={() => handleToggleActuator('light', settings.desiredLightState)} description="Toggle the main grow lights."/>
             <ControlCard title="Ventilation Fan" icon={Wind} isActive={settings.desiredFanState} isLoading={actuatorLoadingStates.fan} onToggle={() => handleToggleActuator('fan', settings.desiredFanState)} description="Activate or deactivate the circulation fan." />
             <ControlCard title="Irrigation System" icon={Droplets} isActive={settings.desiredIrrigationState} isLoading={actuatorLoadingStates.irrigation} onToggle={() => handleToggleActuator('irrigation', settings.desiredIrrigationState)} description={`Manual override for the watering system. Auto-irrigation is currently ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
-            <ControlCard title="UV Light" icon={Zap} isActive={settings.desiredUvLightState} isLoading={actuatorLoadingStates.uvLight} onToggle={() => handleToggleActuator('uvLight', settings.desiredUvLightState)} description="Control the supplementary UV lighting."/>
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {[...Array(4)].map((_, i) => <Skeleton key={`act-load-skl-${i}`} className="h-48 w-full" />)}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {[...Array(3)].map((_, i) => <Skeleton key={`act-load-skl-${i}`} className="h-48 w-full" />)}
           </div>
         )}
       </section>
@@ -364,4 +359,3 @@ export default function ControlPage() {
     </div>
   );
 }
-
