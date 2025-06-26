@@ -37,9 +37,9 @@ export async function GET(
       return NextResponse.json({ message: 'Device settings not found for this device' }, { status: 404 });
     }
 
-    const mapStateToCommand = (state: boolean | undefined | null) => {
+    const mapStateToValue = (state: boolean | undefined | null) => {
       if (state === undefined || state === null) return null;
-      return state ? "ON" : "OFF";
+      return state ? 1 : 0;
     };
 
     const manualReadRequests: SensorType[] = [];
@@ -68,9 +68,9 @@ export async function GET(
       autoVentilationEnabled: !!settings.autoVentilation,
       temperatureOnThresholdCelsius: settings.temperatureThreshold,
       temperatureOffThresholdCelsius: settings.temperatureFanOffThreshold,
-      lightCommand: mapStateToCommand(settings.desiredLightState),
-      fanCommand: mapStateToCommand(settings.desiredFanState),
-      irrigationCommand: mapStateToCommand(settings.desiredIrrigationState),
+      set_led: mapStateToValue(settings.desiredLightState),
+      set_fan: mapStateToValue(settings.desiredFanState),
+      set_valve: mapStateToValue(settings.desiredIrrigationState),
     };
 
     if (manualReadRequests.length > 0) {
