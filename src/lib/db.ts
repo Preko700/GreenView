@@ -165,38 +165,6 @@ export async function getDb() {
       );
     `);
 
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS service_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER NOT NULL,
-        deviceId TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        phoneNumber TEXT NOT NULL,
-        status TEXT DEFAULT 'PENDING',
-        timestamp INTEGER NOT NULL,
-        notes TEXT,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
-      );
-    `);
-
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS service_log_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        technicianName TEXT NOT NULL,
-        userId INTEGER NOT NULL,
-        deviceId TEXT NOT NULL,
-        serviceDate INTEGER NOT NULL,
-        actionsTaken TEXT NOT NULL,
-        result TEXT NOT NULL,
-        timestamp INTEGER NOT NULL,
-        serviceRequestId INTEGER,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE,
-        FOREIGN KEY (serviceRequestId) REFERENCES service_requests(id) ON DELETE SET NULL
-      );
-    `);
-    await db.run('CREATE INDEX IF NOT EXISTS idx_log_entries_serviceRequestId ON service_log_entries (serviceRequestId);');
   }
   return db;
 }
