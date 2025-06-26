@@ -2,7 +2,6 @@
 import sqlite3 from 'sqlite3';
 import { open, type Database } from 'sqlite';
 import path from 'path';
-import bcrypt from 'bcryptjs';
 import type { DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
 
@@ -99,15 +98,6 @@ export async function getDb() {
     console.log("DB: Schema checked/created successfully.");
   }
   return db;
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  const saltRounds = 10;
-  return bcrypt.hash(password, saltRounds);
-}
-
-export async function comparePassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
 }
 
 export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
