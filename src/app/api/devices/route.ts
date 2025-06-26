@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
             deviceId, measurementInterval, autoIrrigation, irrigationThreshold,
             autoVentilation, temperatureThreshold, temperatureFanOffThreshold,
             photoCaptureInterval, temperatureUnit,
-            desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            desiredLightState, desiredFanState, desiredIrrigationState
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         serialNumber,
         defaultDeviceSettings.measurementInterval,
         defaultDeviceSettings.autoIrrigation,
@@ -73,8 +73,7 @@ export async function POST(request: NextRequest) {
         defaultDeviceSettings.temperatureUnit,
         defaultDeviceSettings.desiredLightState,
         defaultDeviceSettings.desiredFanState,
-        defaultDeviceSettings.desiredIrrigationState,
-        defaultDeviceSettings.desiredUvLightState
+        defaultDeviceSettings.desiredIrrigationState
     );
 
     const newDevice: Partial<Device> = {
@@ -157,4 +156,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: clientErrorMessage, details: error.message }, { status: 500 });
   }
 }
-    
