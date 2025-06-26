@@ -6,14 +6,17 @@ import type { EmailPasswordCredentials, User } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const { email: originalEmail, password } = (await request.json()) as EmailPasswordCredentials;
-    console.log(`[LOGIN API] Received login attempt for: ${originalEmail}`);
-
+    
     if (!originalEmail || !password) {
       console.error('[LOGIN API] Missing email or password.');
       return NextResponse.json({ message: 'Email and password are required' }, { status: 400 });
     }
 
-    const email = originalEmail.toLowerCase();
+    const email = originalEmail.toLowerCase().trim();
+    const cleanPassword = password.trim();
+
+    console.log(`[LOGIN API] Received login attempt for: ${email}`);
+    
     const db = await getDb();
     console.log(`[LOGIN API] Database connection obtained. Searching for user: ${email}`);
 
@@ -32,10 +35,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[LOGIN API] Comparing passwords for ${email}.`);
-    console.log(`[LOGIN API]   - Received password: "${password}"`);
+    console.log(`[LOGIN API]   - Received password: "${cleanPassword}"`);
     console.log(`[LOGIN API]   - Stored password:   "${userRow.password}"`);
     
-    const isPasswordValid = password === userRow.password;
+    const isPasswordValid = cleanPassword === userRow.password;
     
     console.log(`[LOGIN API] Password validation result for ${email}: ${isPasswordValid}`);
 

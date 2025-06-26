@@ -6,17 +6,19 @@ import type { RegistrationCredentials, User } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const { name, email: originalEmail, password } = (await request.json()) as RegistrationCredentials;
-    console.log(`[REGISTER API] Received registration request for email: ${originalEmail}`);
 
     if (!name || !originalEmail || !password) {
       console.error('[REGISTER API] Missing name, email, or password.');
       return NextResponse.json({ message: 'Name, email, and password are required' }, { status: 400 });
     }
 
-    const email = originalEmail.toLowerCase();
+    const email = originalEmail.toLowerCase().trim();
+    const cleanPassword = password.trim();
+    const cleanName = name.trim();
     const registrationDate = Date.now();
 
-    console.log(`[REGISTER API] Data to be inserted: Name: "${name}", Email: "${email}", Password: "${password}"`);
+    console.log(`[REGISTER API] Received registration request for email: ${email}`);
+    console.log(`[REGISTER API] Data to be inserted: Name: "${cleanName}", Email: "${email}", Password: "[REDACTED]"`);
     
     const db = await getDb();
     console.log('[REGISTER API] Database connection obtained.');
@@ -30,9 +32,9 @@ export async function POST(request: NextRequest) {
     console.log(`[REGISTER API] Inserting new user into database...`);
     const result = await db.run(
       'INSERT INTO users (name, email, password, registrationDate) VALUES (?, ?, ?, ?)',
-      name,
+      cleanName,
       email,
-      password,
+      cleanPassword,
       registrationDate
     );
     console.log('[REGISTER API] Insert result:', result);
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
 
     const newUser: User = {
         id: result.lastID,
-        name,
+        name: cleanName,
         email,
         registrationDate,
     };
