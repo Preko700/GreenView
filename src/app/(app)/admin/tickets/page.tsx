@@ -123,12 +123,18 @@ export default function AdminPage() {
          throw new Error("Invalid Service Request ID provided.");
        }
        
-       const bodyToSend = {
-        ...values,
-        userId: parseInt(values.userId, 10),
-        serviceDate: Date.now(),
-        serviceRequestId: serviceRequestIdNum,
-      };
+       const bodyToSend: any = {
+         technicianName: values.technicianName,
+         userId: parseInt(values.userId, 10),
+         deviceId: values.deviceId,
+         actionsTaken: values.actionsTaken,
+         result: values.result,
+         serviceDate: Date.now(),
+       };
+
+       if (serviceRequestIdNum) {
+           bodyToSend.serviceRequestId = serviceRequestIdNum;
+       }
 
       const response = await fetch('/api/admin/service-log', {
         method: 'POST',

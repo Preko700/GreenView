@@ -11,7 +11,7 @@ const serviceLogSchema = z.object({
   serviceDate: z.number().int().positive(),
   actionsTaken: z.string().min(1),
   result: z.string().min(1),
-  serviceRequestId: z.coerce.number().int().positive().nullable(),
+  serviceRequestId: z.coerce.number().int().positive().optional(),
 });
 
 export async function POST(request: NextRequest) {
