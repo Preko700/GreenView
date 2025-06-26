@@ -15,7 +15,7 @@ export interface EmailPasswordCredentials {
 
 export interface RegistrationCredentials extends EmailPasswordCredentials {
     name: string;
-    country?: string;
+    // Country is no longer part of the initial registration
 }
 
 export interface Device {

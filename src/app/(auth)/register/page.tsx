@@ -27,7 +27,6 @@ const registerSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
   confirmPassword: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  country: z.string().optional(), // Making country optional for now
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"], 
@@ -44,7 +43,6 @@ export default function RegisterPage() {
       email: "",
       password: "",
       confirmPassword: "",
-      country: "",
     },
   });
 
@@ -54,7 +52,6 @@ export default function RegisterPage() {
         name: values.name,
         email: values.email,
         password: values.password,
-        country: values.country
     }
     await register(creds);
     // AuthContext handles navigation and toast messages on success/failure
@@ -120,19 +117,6 @@ export default function RegisterPage() {
                   <FormLabel>Confirm Password</FormLabel>
                   <FormControl>
                     <Input type="password" placeholder="••••••••" {...field} disabled={currentLoading} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="country"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Country (Optional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Your country" {...field} disabled={currentLoading} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
