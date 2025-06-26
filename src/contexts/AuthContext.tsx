@@ -14,6 +14,7 @@ interface AuthContextType {
   login: (credentials: EmailPasswordCredentials) => Promise<void>;
   register: (credentials: RegistrationCredentials) => Promise<void>;
   logout: () => Promise<void>;
+  setUser: (user: User | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -57,8 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const errorData = await response.json();
             errorMessage = errorData?.message || errorMessage;
           } catch (jsonError) {
-            console.error("Failed to parse JSON error response from API:", jsonError);
-            const responseText = await response.text(); // Get text if JSON parsing fails
+            const responseText = await response.text();
             console.error("Login API error response (unparseable JSON). Status:", response.status, "Response text:", responseText);
             errorMessage = `Server returned an unreadable error (Status: ${response.status}). Check console.`;
           }
@@ -71,7 +71,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(errorMessage);
       }
 
-      // If response.ok is true, we expect JSON
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
         setUser(data.user);
@@ -87,11 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     } catch (error: any) {
       console.error("Login error in AuthContext catch block:", error);
-      // Avoid re-toasting if a specific toast was already shown from the !response.ok block
-      // This check assumes error messages thrown from the !response.ok block start with "Login failed" or "Server returned"
-      if (!error.message.startsWith("Login failed") && !error.message.startsWith("Server returned")) {
-         toast({ title: "Login Attempt Failed", description: error.message || "An unexpected error occurred.", variant: "destructive" });
-      }
       setUser(null);
       localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
     } finally {
@@ -108,27 +102,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(credentials),
       });
       
-      const contentType = response.headers.get('content-type');
-      let data;
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const responseText = await response.text();
-        console.error("Register API did not return JSON. Response text:", responseText);
-        toast({ title: "Registration Failed", description: "Server returned an unexpected response. Please check console.", variant: "destructive" });
-        throw new Error(`Registration failed: Server returned non-JSON response. Status: ${response.status}`);
-      }
+      const data = await response.json();
 
       if (!response.ok) {
         toast({ title: "Registration Failed", description: data.message || "Could not create account.", variant: "destructive" });
         throw new Error(data.message || 'Registration failed');
       }
       
-      setUser(data.user);
-      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(data.user));
-      toast({ title: "Registration Successful", description: `Welcome, ${data.user.name}!` });
-      router.push('/dashboard'); 
+      toast({ 
+        title: "Registration Successful!", 
+        description: `Welcome, ${data.user.name}! Please log in to continue.` 
+      });
+      router.push('/login'); 
 
     } catch (error: any) {
       console.error("Registration error in AuthContext:", error);
@@ -147,8 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
     toast({ title: "Logged Out", description: "You have been successfully logged out." });
-    // Ensure router push is awaited or handled if it can cause issues before setIsLoading(false)
-    await router.push('/login');
+    router.push('/login');
     setIsLoading(false); 
   };
   
@@ -162,7 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading, 
         login,
         register,
-        logout 
+        logout,
+        setUser
       }}
     >
       {children}
