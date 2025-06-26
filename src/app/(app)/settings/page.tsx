@@ -150,6 +150,7 @@ export default function SettingsPage() {
       if (!dbSchemaError) { 
         toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
       }
+      console.error("Error fetching devices:", error.message);
       setDevices([]); 
       setSelectedDeviceId(undefined);
       setCurrentDeviceSettings(null);
@@ -327,7 +328,7 @@ export default function SettingsPage() {
               <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier (Optional)</FormLabel><FormControl><Input placeholder="Auto-generated if left blank" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Device Name</FormLabel><FormControl><Input placeholder="e.g., My Balcony Garden" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="plantType" render={({ field }) => ( <FormItem><FormLabel>Plant Type (Optional)</FormLabel><FormControl><Input placeholder="e.g., Tomatoes, Herbs" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-              <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormMessage /></FormItem> )}/>
+              <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="isPoweredByBattery" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <div className="space-y-0.5"> <FormLabel>Powered by Battery</FormLabel> </div> <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl> </FormItem> )}/>
             </CardContent>
             <CardFooter> <Button type="submit" disabled={isDeviceRegistering}> {isDeviceRegistering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />} Register Device </Button> </CardFooter>
@@ -406,3 +407,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+    
