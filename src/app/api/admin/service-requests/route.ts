@@ -1,27 +1,8 @@
 
-import { NextResponse, type NextRequest } from 'next/server';
-import { getDb } from '@/lib/db';
-import type { AdminServiceRequestView } from '@/lib/types';
+// This route is deprecated and no longer used in the simplified support system.
+// It can be removed or left empty to avoid breaking any potential old links.
+import { NextResponse } from 'next/server';
 
-export async function GET(request: NextRequest) {
-    try {
-        const db = await getDb();
-        
-        const requests: AdminServiceRequestView[] = await db.all(`
-            SELECT 
-                r.id, r.userId, r.deviceId, r.reason, r.phoneNumber, r.status, r.timestamp, r.notes,
-                u.name as userName,
-                u.email as userEmail,
-                d.name as deviceName
-            FROM service_requests r
-            LEFT JOIN users u ON r.userId = u.id
-            LEFT JOIN devices d ON r.deviceId = d.serialNumber
-            ORDER BY r.timestamp DESC
-        `);
-
-        return NextResponse.json(requests, { status: 200 });
-    } catch (error) {
-        console.error('Error fetching service requests for admin view:', error);
-        return NextResponse.json({ message: 'An internal server error occurred' }, { status: 500 });
-    }
+export async function GET() {
+    return NextResponse.json({ message: "This endpoint is deprecated." }, { status: 410 });
 }

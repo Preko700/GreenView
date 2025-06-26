@@ -29,8 +29,7 @@ export async function GET(
       `SELECT 
         measurementInterval, desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState, 
         autoIrrigation, irrigationThreshold, autoVentilation, temperatureThreshold, temperatureFanOffThreshold,
-        requestManualTemperatureReading, requestManualAirHumidityReading, requestManualSoilHumidityReading, requestManualLightLevelReading,
-        autoRoofControl, roofOpenTime, roofCloseTime
+        requestManualTemperatureReading, requestManualAirHumidityReading, requestManualSoilHumidityReading, requestManualLightLevelReading
       FROM device_settings WHERE deviceId = ?`,
       deviceId
     );
@@ -72,9 +71,6 @@ export async function GET(
       autoVentilationEnabled: !!settings.autoVentilation,
       temperatureOnThresholdCelsius: settings.temperatureThreshold,
       temperatureOffThresholdCelsius: settings.temperatureFanOffThreshold,
-      autoRoofEnabled: !!settings.autoRoofControl,
-      roofOpenTime: settings.roofOpenTime,
-      roofCloseTime: settings.roofCloseTime,
       lightCommand: mapStateToCommand(settings.desiredLightState),
       fanCommand: mapStateToCommand(settings.desiredFanState),
       irrigationCommand: mapStateToCommand(settings.desiredIrrigationState),

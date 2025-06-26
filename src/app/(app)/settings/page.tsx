@@ -325,7 +325,7 @@ export default function SettingsPage() {
           <form onSubmit={deviceRegistrationForm.handleSubmit(handleDeviceRegister)}>
             <CardContent className="space-y-4">
               <FormField control={deviceRegistrationForm.control} name="serialNumber" render={({ field }) => ( <FormItem><FormLabel>Serial Number</FormLabel><FormControl><Input placeholder="Device Serial Number (e.g., GH-00X)" {...field} /></FormControl><FormMessage /></FormItem> )}/>
-              <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier (Optional)</FormLabel><FormControl><Input placeholder="Auto-generated if left blank" {...field} /></FormControl><FormMessage /></FormItem> )}/>
+              <FormField control={deviceRegistrationForm.control} name="hardwareIdentifier" render={({ field }) => ( <FormItem><FormLabel>Hardware Identifier (Optional)</FormLabel><FormControl><Input placeholder="Auto-generated if left blank" {...field} /></FormControl><FormDescription>Unique ID for the physical device. Leave blank to auto-generate.</FormDescription><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Device Name</FormLabel><FormControl><Input placeholder="e.g., My Balcony Garden" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="plantType" render={({ field }) => ( <FormItem><FormLabel>Plant Type (Optional)</FormLabel><FormControl><Input placeholder="e.g., Tomatoes, Herbs" {...field} /></FormControl><FormMessage /></FormItem> )}/>
               <FormField control={deviceRegistrationForm.control} name="location" render={({ field }) => ( <FormItem><FormLabel>Location (Optional)</FormLabel><FormControl><Input placeholder="e.g., Backyard, Kitchen Window" {...field} /></FormControl><FormMessage /></FormItem> )}/>
@@ -407,5 +407,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-    

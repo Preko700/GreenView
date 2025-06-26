@@ -8,7 +8,7 @@ import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
-// Helper function to run a single column addition migration
+// Helper function to run a single column addition migration safely
 const runMigration = async (db: Database, tableName: string, columnName:string, columnDefinition: string) => {
     try {
         const columns = await db.all(`PRAGMA table_info(${tableName});`);
@@ -19,9 +19,11 @@ const runMigration = async (db: Database, tableName: string, columnName:string, 
         }
     } catch (error) {
         console.error(`DB_MIGRATE_ERROR: Failed to migrate column '${columnName}' for table '${tableName}'.`, error);
-        // Don't re-throw to allow app to continue if possible.
+        // We throw here to indicate that the DB setup is not complete and might be unstable.
+        throw new Error(`Failed to migrate DB for column ${tableName}.${columnName}. The application cannot start safely.`);
     }
 };
+
 
 export async function getDb() {
   if (!db) {
@@ -38,7 +40,8 @@ export async function getDb() {
     await db.exec('PRAGMA journal_mode = WAL;');
     await db.exec('PRAGMA foreign_keys = ON;');
 
-    // --- SCHEMA DEFINITIONS ---
+    // --- SCHEMA CREATION ---
+    // These statements define the final, correct schema. They run if tables don't exist.
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,13 +114,14 @@ export async function getDb() {
       );
     `);
 
-    // --- ROBUST MIGRATIONS ---
-    console.log("DB: Running schema migrations if needed...");
+    // --- ROBUST MIGRATION FOR EXISTING DATABASES ---
+    // This section ensures an OLD database is safely brought up to date.
+    console.log("DB: Checking for necessary schema migrations...");
     try {
-        // Migration for the 'devices' table
+        // This is the most critical migration to fix the "internal server error".
         const deviceColumns = await db.all("PRAGMA table_info(devices);");
         if (!deviceColumns.some(c => c.name === 'hardwareIdentifier')) {
-          console.log("DB_MIGRATE: 'devices' table is missing 'hardwareIdentifier'. Migrating...");
+          console.log("DB_MIGRATE: Critical 'hardwareIdentifier' column missing. Adding and populating it.");
           await db.exec('ALTER TABLE devices ADD COLUMN hardwareIdentifier TEXT;');
           const devicesToUpdate = await db.all('SELECT serialNumber FROM devices WHERE hardwareIdentifier IS NULL;');
           for (const device of devicesToUpdate) {
@@ -125,18 +129,20 @@ export async function getDb() {
               await db.run('UPDATE devices SET hardwareIdentifier = ? WHERE serialNumber = ?', newHwId, device.serialNumber);
           }
           await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
-          console.log(`DB_MIGRATE: 'hardwareIdentifier' column added, populated for ${devicesToUpdate.length} devices, and indexed.`);
+          console.log(`DB_MIGRATE: 'hardwareIdentifier' column added and populated for ${devicesToUpdate.length} devices.`);
         }
 
-        // Migrations for the 'device_settings' table
+        // Migration for the 'device_settings' table for manual reading flags
         await runMigration(db, 'device_settings', 'requestManualTemperatureReading', 'BOOLEAN DEFAULT FALSE');
         await runMigration(db, 'device_settings', 'requestManualAirHumidityReading', 'BOOLEAN DEFAULT FALSE');
         await runMigration(db, 'device_settings', 'requestManualSoilHumidityReading', 'BOOLEAN DEFAULT FALSE');
         await runMigration(db, 'device_settings', 'requestManualLightLevelReading', 'BOOLEAN DEFAULT FALSE');
         
-        console.log("DB: Migrations check completed.");
+        console.log("DB: Migrations check completed successfully.");
     } catch (migrationError) {
-        console.error("DB_MIGRATE_FATAL: A critical error occurred during the migration process.", migrationError);
+        console.error("DB_MIGRATE_FATAL: A critical error occurred during the database migration process.", migrationError);
+        // Exit the process if migration fails, as the app is in an unstable state.
+        process.exit(1);
     }
   }
   return db;

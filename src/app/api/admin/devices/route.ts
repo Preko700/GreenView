@@ -1,20 +1,23 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { getDb } from '@/lib/db';
-import type { AdminDeviceView } from '@/lib/types';
+import type { Device } from '@/lib/types';
+
 
 export async function GET(request: NextRequest) {
     try {
         const db = await getDb();
         
-        const devices: AdminDeviceView[] = await db.all(`
+        // This endpoint can simply list all devices with basic info
+        const devices: Device[] = await db.all(`
             SELECT 
                 d.serialNumber,
                 d.userId,
-                d.name as deviceName,
-                u.name as userName,
+                d.name,
+                d.plantType,
                 d.activationDate,
-                d.warrantyEndDate
+                d.isActive,
+                u.name as userName
             FROM devices d
             LEFT JOIN users u ON d.userId = u.id
             ORDER BY d.activationDate DESC
