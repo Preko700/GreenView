@@ -118,23 +118,20 @@ export default function AdminPage() {
   const handleLogSubmit: SubmitHandler<z.infer<typeof serviceLogSchema>> = async (values) => {
     setIsSubmitting(true);
     try {
-       const serviceRequestIdNum = values.serviceRequestId ? parseInt(values.serviceRequestId, 10) : null;
-       if (values.serviceRequestId && isNaN(serviceRequestIdNum)) {
-         throw new Error("Invalid Service Request ID provided.");
-       }
-       
-       const bodyToSend: any = {
+      const bodyToSend: any = {
          technicianName: values.technicianName,
          userId: parseInt(values.userId, 10),
          deviceId: values.deviceId,
          actionsTaken: values.actionsTaken,
          result: values.result,
          serviceDate: Date.now(),
-       };
-
-       if (serviceRequestIdNum) {
-           bodyToSend.serviceRequestId = serviceRequestIdNum;
-       }
+      };
+      
+      // Robustly handle optional serviceRequestId
+      // Ensure it's a valid number string before parsing and adding
+      if (values.serviceRequestId && /^\d+$/.test(values.serviceRequestId)) {
+          bodyToSend.serviceRequestId = parseInt(values.serviceRequestId, 10);
+      }
 
       const response = await fetch('/api/admin/service-log', {
         method: 'POST',

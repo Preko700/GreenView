@@ -4,14 +4,16 @@ import { getDb } from '@/lib/db';
 import { z } from 'zod';
 import type { AdminServiceLogView } from '@/lib/types';
 
+// Simplified schema: the client is now responsible for sending valid numbers.
+// The server just validates that if the optional field is present, it's a valid number.
 const serviceLogSchema = z.object({
   technicianName: z.string().min(2),
-  userId: z.coerce.number().int().positive(),
+  userId: z.number().int().positive(),
   deviceId: z.string().min(1),
   serviceDate: z.number().int().positive(),
   actionsTaken: z.string().min(1),
   result: z.string().min(1),
-  serviceRequestId: z.coerce.number().int().positive().optional(),
+  serviceRequestId: z.number().int().positive().optional(),
 });
 
 export async function POST(request: NextRequest) {
