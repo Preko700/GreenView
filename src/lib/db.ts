@@ -29,9 +29,7 @@ export async function getDb() {
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
-        country TEXT,
-        registrationDate INTEGER,
-        profileImageUrl TEXT
+        registrationDate INTEGER
       );
     `);
 

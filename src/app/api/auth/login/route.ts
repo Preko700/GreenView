@@ -11,18 +11,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Email and password are required' }, { status: 400 });
     }
 
-    const email = originalEmail.toLowerCase(); // Convert to lowercase
+    const email = originalEmail.toLowerCase();
 
     const db = await getDb();
-    // Fetch the password hash along with other user details
-    const userRow = await db.get<User & { password?: string } >('SELECT id, name, email, country, registrationDate, profileImageUrl, password FROM users WHERE email = ?', email);
+    const userRow = await db.get<User & { password?: string } >('SELECT id, name, email, registrationDate, password FROM users WHERE email = ?', email);
 
     if (!userRow) {
-      // User not found with this email
       return NextResponse.json({ message: 'Invalid email or password' }, { status: 401 });
     }
     
-    // Ensure password hash exists (should always exist due to NOT NULL constraint if user is found)
     if (!userRow.password) {
       console.error(`[LOGIN API / SERVER-SIDE] User ${email} found but has no password hash in DB.`);
       return NextResponse.json({ message: 'Internal server error - user data integrity issue.' }, { status: 500 });
@@ -34,7 +31,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Invalid email or password' }, { status: 401 });
     }
 
-    // Exclude password from the returned user object
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password: _, ...userToReturn } = userRow; 
 

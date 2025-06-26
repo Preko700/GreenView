@@ -39,7 +39,6 @@ import { UsbDeviceConnector } from '@/components/settings/UsbDeviceConnector';
 const userSettingsSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters."),
   email: z.string().email("Invalid email address.").toLowerCase(),
-  country: z.string().min(2, "Country must be at least 2 characters."),
   notificationsEnabled: z.boolean().default(true),
 });
 
@@ -85,7 +84,7 @@ export default function SettingsPage() {
 
   const userForm = useForm<z.infer<typeof userSettingsSchema>>({
     resolver: zodResolver(userSettingsSchema),
-    defaultValues: { name: '', email: '', country: '', notificationsEnabled: true },
+    defaultValues: { name: '', email: '', notificationsEnabled: true },
   });
 
   const deviceRegistrationForm = useForm<z.infer<typeof deviceRegistrationSchema>>({
@@ -112,7 +111,6 @@ export default function SettingsPage() {
       userForm.reset({
         name: authUser?.name || '',
         email: authUser?.email || '',
-        country: authUser?.country || "",
         notificationsEnabled: true, 
       });
     }
@@ -143,7 +141,7 @@ export default function SettingsPage() {
     } finally {
       setIsDevicesLoading(false);
     }
-  }, [authUser, toast, deviceForm, selectedDeviceId]);
+  }, [authUser, deviceForm, selectedDeviceId]);
   
   useEffect(() => {
     if (authUser) {
@@ -299,7 +297,6 @@ export default function SettingsPage() {
               <CardContent className="space-y-4">
                 <FormField control={userForm.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your full name" {...field} /></FormControl><FormMessage /></FormItem>)} />
                 <FormField control={userForm.control} name="email" render={({ field }) => ( <FormItem><FormLabel>Email Address</FormLabel><FormControl><Input type="email" placeholder="your@email.com" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                <FormField control={userForm.control} name="country" render={({ field }) => ( <FormItem><FormLabel>Country</FormLabel><FormControl><Input placeholder="Your country" {...field} /></FormControl><FormMessage /></FormItem> )} />
                 <FormField control={userForm.control} name="notificationsEnabled" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm"> <div className="space-y-0.5"> <FormLabel>Enable Notifications</FormLabel> <FormDescription>Receive alerts and updates from your devices.</FormDescription> </div> <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl> </FormItem>)} />
               </CardContent>
               <CardFooter> <Button type="submit" disabled={isUserSaving}> {isUserSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Save Profile </Button> </CardFooter>

@@ -3,9 +3,7 @@ export interface User {
   id: number;
   name: string | null;
   email: string | null;
-  country?: string | null;
   registrationDate?: number;
-  profileImageUrl?: string | null;
 }
 
 export interface EmailPasswordCredentials {
@@ -15,7 +13,6 @@ export interface EmailPasswordCredentials {
 
 export interface RegistrationCredentials extends EmailPasswordCredentials {
     name: string;
-    // Country is no longer part of the initial registration
 }
 
 export interface Device {

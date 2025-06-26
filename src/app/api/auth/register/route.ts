@@ -13,7 +13,6 @@ export async function POST(request: NextRequest) {
 
     const email = originalEmail.toLowerCase(); // Convert to lowercase
 
-    // Basic email validation
     if (!/\S+@\S+\.\S+/.test(email)) {
         return NextResponse.json({ message: 'Invalid email format' }, { status: 400 });
     }
@@ -21,44 +20,35 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ message: 'Password must be at least 6 characters long' }, { status: 400 });
     }
 
-
     const db = await getDb();
-    console.log(`[REGISTER API] Checking for existing user with email: ${email}`);
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', email); // Use lowercase email for check
+    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', email);
 
     if (existingUser) {
-      console.log(`[REGISTER API] User with email ${email} already exists.`);
       return NextResponse.json({ message: 'User with this email already exists' }, { status: 409 });
     }
 
-    console.log(`[REGISTER API] Hashing password for ${email}`);
     const hashedPassword = await hashPassword(password);
     const registrationDate = Date.now();
 
-    console.log(`[REGISTER API] Inserting new user ${email} into database.`);
     const result = await db.run(
       'INSERT INTO users (name, email, password, registrationDate) VALUES (?, ?, ?, ?)',
       name,
-      email, // Store lowercase email
+      email,
       hashedPassword,
       registrationDate
     );
 
     if (!result.lastID) {
-        console.error(`[REGISTER API] Failed to get lastID for user ${email} after insert.`);
         return NextResponse.json({ message: 'Failed to register user' }, { status: 500 });
     }
 
-    const newUser: User = { // Ensure type matches the User interface
+    const newUser: User = {
         id: result.lastID,
         name,
-        email, // Return lowercase email
-        country: null, // Set country to null as it's removed from registration
+        email,
         registrationDate,
-        profileImageUrl: null,
     };
     
-    console.log(`[REGISTER API] User ${email} registered successfully with ID: ${newUser.id}`);
     return NextResponse.json({ message: 'User registered successfully', user: newUser }, { status: 201 });
   } catch (error) {
     console.error('[REGISTER API] Registration error:', error);
