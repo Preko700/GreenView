@@ -24,10 +24,9 @@ export async function GET(
 
     const deviceId = device.serialNumber;
 
-    // Fetch all settings, including new requestManual... flags
-    const settings = await db.get<DeviceSettings & { requestManualLightLevelReading?: boolean } >(
+    const settings = await db.get<DeviceSettings>(
       `SELECT 
-        measurementInterval, desiredLightState, desiredFanState, desiredIrrigationState, desiredUvLightState, 
+        measurementInterval, desiredLightState, desiredFanState, desiredIrrigationState,
         autoIrrigation, irrigationThreshold, autoVentilation, temperatureThreshold, temperatureFanOffThreshold,
         requestManualTemperatureReading, requestManualAirHumidityReading, requestManualSoilHumidityReading, requestManualLightLevelReading
       FROM device_settings WHERE deviceId = ?`,
@@ -45,13 +44,11 @@ export async function GET(
 
     const manualReadRequests: SensorType[] = [];
     
-    // Check and add manual read requests
     if (settings.requestManualTemperatureReading) manualReadRequests.push(SensorType.TEMPERATURE);
     if (settings.requestManualAirHumidityReading) manualReadRequests.push(SensorType.AIR_HUMIDITY);
     if (settings.requestManualSoilHumidityReading) manualReadRequests.push(SensorType.SOIL_HUMIDITY);
     if (settings.requestManualLightLevelReading) manualReadRequests.push(SensorType.LIGHT);
     
-    // Reset flags in database after fetching them
     if (manualReadRequests.length > 0) {
       const updates: string[] = [];
       if (settings.requestManualTemperatureReading) updates.push('requestManualTemperatureReading = FALSE');
@@ -74,7 +71,6 @@ export async function GET(
       lightCommand: mapStateToCommand(settings.desiredLightState),
       fanCommand: mapStateToCommand(settings.desiredFanState),
       irrigationCommand: mapStateToCommand(settings.desiredIrrigationState),
-      uvLightCommand: mapStateToCommand(settings.desiredUvLightState),
     };
 
     if (manualReadRequests.length > 0) {

@@ -29,7 +29,7 @@ export interface Device {
   isActive: boolean;
   isPoweredByBattery: boolean;
   lastUpdateTimestamp?: number;
-  userId?: number; // Optional on base type, but present in most API responses
+  userId?: number; 
 }
 
 export enum SensorType {
@@ -95,7 +95,6 @@ export interface DeviceSettings {
   desiredLightState: boolean;
   desiredFanState: boolean;
   desiredIrrigationState: boolean;
-  desiredUvLightState: boolean;
   requestManualTemperatureReading?: boolean;
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;

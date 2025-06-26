@@ -5,9 +5,7 @@ import type { DeviceSettings } from '@/lib/types';
 import { TemperatureUnit } from '@/lib/types';
 import { z } from "zod";
 
-// This schema is for validating data sent from the settings page
 const deviceSettingsUpdateSchema = z.object({
-  // Automation settings
   measurementInterval: z.coerce.number().min(1).max(60),
   autoIrrigation: z.boolean(),
   irrigationThreshold: z.coerce.number().min(10).max(90),
@@ -16,7 +14,6 @@ const deviceSettingsUpdateSchema = z.object({
   temperatureFanOffThreshold: z.coerce.number().min(0).max(49),
   photoCaptureInterval: z.coerce.number().min(1).max(24),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
-  // Auth
   userId: z.number().int().positive("User ID is required in request body for saving settings"), 
 })
 .refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
@@ -58,9 +55,8 @@ export async function GET(
     );
 
     if (settingsRow) {
-      // Ensure boolean values are correctly interpreted from DB (0/1)
       const typedSettings: DeviceSettings = {
-        ...defaultDeviceSettings, // Start with defaults to ensure all keys are present
+        ...defaultDeviceSettings,
         ...settingsRow,
         deviceId: settingsRow.deviceId,
         autoIrrigation: !!settingsRow.autoIrrigation,
@@ -71,8 +67,6 @@ export async function GET(
       };
       return NextResponse.json(typedSettings, { status: 200 });
     } else {
-      // This case should not happen if defaults are set on device registration
-      // But as a fallback, return full default structure
       const fullDefaults: DeviceSettings = {
         deviceId,
         ...defaultDeviceSettings

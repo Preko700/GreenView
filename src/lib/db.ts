@@ -22,9 +22,6 @@ export async function getDb() {
 
     await db.exec('PRAGMA journal_mode = WAL;');
     await db.exec('PRAGMA foreign_keys = ON;');
-
-    // --- Final Schema Definitions ---
-    // The following commands define the correct and final structure for all tables.
     
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
@@ -69,7 +66,6 @@ export async function getDb() {
           desiredLightState BOOLEAN DEFAULT FALSE,
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
-          desiredUvLightState BOOLEAN DEFAULT FALSE,
           requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
           requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
@@ -128,7 +124,6 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   desiredLightState: false,
   desiredFanState: false,
   desiredIrrigationState: false,
-  desiredUvLightState: false,
   requestManualTemperatureReading: false,
   requestManualAirHumidityReading: false,
   requestManualSoilHumidityReading: false,
