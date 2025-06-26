@@ -136,9 +136,9 @@ export interface AdminDeviceView {
   serialNumber: string;
   userId: number;
   deviceName: string;
-  userName: string;
+  userName: string | null;
   activationDate: number;
-  warrantyEndDate: number;
+  warrantyEndDate: number | null;
 }
 
 export enum ServiceRequestStatus {
@@ -159,9 +159,9 @@ export interface ServiceRequest {
 }
 
 export interface AdminServiceRequestView extends ServiceRequest {
-    userName: string;
-    userEmail: string;
-    deviceName: string;
+    userName: string | null;
+    userEmail: string | null;
+    deviceName: string | null;
 }
 
 export interface ServiceLogEntry {
@@ -177,6 +177,6 @@ export interface ServiceLogEntry {
 }
 
 export interface AdminServiceLogView extends ServiceLogEntry {
-    userName: string;
-    deviceName: string;
+    userName: string | null;
+    deviceName: string | null;
 }

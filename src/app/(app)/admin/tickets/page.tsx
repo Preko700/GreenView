@@ -64,20 +64,30 @@ export default function AdminPage() {
         fetch('/api/admin/service-log'),
         fetch('/api/admin/users'),
       ]);
-      if (!ticketsRes.ok) throw new Error('Failed to fetch tickets');
-      if (!devicesRes.ok) throw new Error('Failed to fetch devices');
-      if (!requestsRes.ok) throw new Error('Failed to fetch service requests');
-      if (!logsRes.ok) throw new Error('Failed to fetch service logs');
-      if (!usersRes.ok) throw new Error('Failed to fetch users');
+      
+      const ticketsData = await ticketsRes.json();
+      if (!ticketsRes.ok) throw new Error(ticketsData.message || 'Failed to fetch tickets');
+      
+      const devicesData = await devicesRes.json();
+      if (!devicesRes.ok) throw new Error(devicesData.message || 'Failed to fetch devices');
 
-      setTickets(await ticketsRes.json());
-      setDevices(await devicesRes.json());
-      setServiceRequests(await requestsRes.json());
-      setServiceLogs(await logsRes.json());
-      setAllUsers(await usersRes.json());
+      const requestsData = await requestsRes.json();
+      if (!requestsRes.ok) throw new Error(requestsData.message || 'Failed to fetch service requests');
+      
+      const logsData = await logsRes.json();
+      if (!logsRes.ok) throw new Error(logsData.message ||'Failed to fetch service logs');
+      
+      const usersData = await usersRes.json();
+      if (!usersRes.ok) throw new Error(usersData.message || 'Failed to fetch users');
+
+      setTickets(ticketsData);
+      setDevices(devicesData);
+      setServiceRequests(requestsData);
+      setServiceLogs(logsData);
+      setAllUsers(usersData);
     } catch (err: any) {
       setErrors({ all: err.message });
-      toast({ title: "Error", description: err.message, variant: 'destructive' });
+      toast({ title: "Error loading admin data", description: err.message, variant: 'destructive' });
     } finally {
       setIsLoading({ all: false });
     }
@@ -108,10 +118,17 @@ export default function AdminPage() {
   const handleLogSubmit: SubmitHandler<z.infer<typeof serviceLogSchema>> = async (values) => {
     setIsSubmitting(true);
     try {
+       const bodyToSend = {
+        ...values,
+        serviceDate: Date.now(),
+        // Ensure empty string becomes null so API validation for numbers passes
+        serviceRequestId: values.serviceRequestId || null,
+      };
+
       const response = await fetch('/api/admin/service-log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...values, serviceDate: Date.now() }),
+        body: JSON.stringify(bodyToSend),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to submit log entry.");
@@ -148,7 +165,8 @@ export default function AdminPage() {
     [TicketStatus.RESOLVED]: 'outline', [ServiceRequestStatus.COMPLETED]: 'outline',
   })[status] || 'secondary';
 
-  const getWarrantyStatus = (warrantyEndDate: number) => {
+  const getWarrantyStatus = (warrantyEndDate: number | null) => {
+    if (warrantyEndDate === null) return { text: 'N/A', variant: 'secondary' as const };
     const now = Date.now();
     const threeMonths = 3 * 30 * 24 * 60 * 60 * 1000;
     if (now > warrantyEndDate) return { text: 'Expired', variant: 'destructive' as const };
@@ -227,7 +245,7 @@ export default function AdminPage() {
                         <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Device</TableHead><TableHead>Reason</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                             <TableBody>{serviceRequests.map((req) => (<TableRow key={req.id}>
                                 <TableCell>{format(new Date(req.timestamp), "PPP p")}</TableCell>
-                                <TableCell>{req.userName}</TableCell><TableCell>{req.deviceName} ({req.deviceId})</TableCell>
+                                <TableCell>{req.userName || 'N/A'}</TableCell><TableCell>{req.deviceName || 'N/A'} ({req.deviceId})</TableCell>
                                 <TableCell>{req.reason}</TableCell><TableCell>{req.phoneNumber}</TableCell>
                                 <TableCell><Badge variant={getStatusVariant(req.status)}>{req.status.replace('_', ' ').toLowerCase()}</Badge></TableCell>
                                 <TableCell className="text-right">
@@ -255,7 +273,7 @@ export default function AdminPage() {
                         <Table><TableHeader><TableRow><TableHead>Serial</TableHead><TableHead>Device Name</TableHead><TableHead>Owner</TableHead><TableHead>Warranty</TableHead></TableRow></TableHeader>
                             <TableBody>{devices.map((device) => {
                                 const warranty = getWarrantyStatus(device.warrantyEndDate);
-                                return (<TableRow key={device.serialNumber}><TableCell>{device.serialNumber}</TableCell><TableCell>{device.deviceName}</TableCell><TableCell>{device.userName}</TableCell><TableCell><Badge variant={warranty.variant}>{warranty.text}</Badge></TableCell></TableRow>);
+                                return (<TableRow key={device.serialNumber}><TableCell>{device.serialNumber}</TableCell><TableCell>{device.deviceName}</TableCell><TableCell>{device.userName || 'N/A'}</TableCell><TableCell><Badge variant={warranty.variant}>{warranty.text}</Badge></TableCell></TableRow>);
                             })}</TableBody>
                         </Table>
                     )}
@@ -274,7 +292,7 @@ export default function AdminPage() {
                            <FormItem><FormLabel>Link to Service Request (Optional)</FormLabel>
                               <Select onValueChange={field.onChange} value={field.value} disabled={isLoading.all}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Select a service request to auto-fill" /></SelectTrigger></FormControl>
-                                <SelectContent>{!isLoading.all && serviceRequests.filter(r => r.status !== 'COMPLETED').map(r => (<SelectItem key={r.id} value={r.id.toString()}>{`#${r.id} - ${r.userName} (${r.reason})`}</SelectItem>))}</SelectContent>
+                                <SelectContent>{!isLoading.all && serviceRequests.filter(r => r.status !== 'COMPLETED').map(r => (<SelectItem key={r.id} value={r.id.toString()}>{`#${r.id} - ${r.userName || 'N/A'} (${r.reason})`}</SelectItem>))}</SelectContent>
                               </Select><FormMessage /></FormItem> )}/>
                          <FormField control={logForm.control} name="deviceId" render={({ field }) => ( 
                           <FormItem><FormLabel>Device</FormLabel>
@@ -303,8 +321,8 @@ export default function AdminPage() {
                             <TableBody>{serviceLogs.map((log) => (<TableRow key={log.id}>
                                 <TableCell>{format(new Date(log.serviceDate), "PPP")}</TableCell>
                                 <TableCell>{log.serviceRequestId ? `#${log.serviceRequestId}` : 'N/A'}</TableCell>
-                                <TableCell>{log.technicianName}</TableCell><TableCell>{log.userName}</TableCell>
-                                <TableCell>{log.deviceName}</TableCell><TableCell>{log.result}</TableCell>
+                                <TableCell>{log.technicianName}</TableCell><TableCell>{log.userName || 'N/A'}</TableCell>
+                                <TableCell>{log.deviceName || 'N/A'}</TableCell><TableCell>{log.result}</TableCell>
                                 <TableCell className="text-right"><Dialog><DialogTrigger asChild><Button variant="ghost" size="sm">View Actions</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Actions Taken</DialogTitle></DialogHeader><p className="py-4">{log.actionsTaken}</p></DialogContent></Dialog></TableCell>
                             </TableRow>))}</TableBody>
                         </Table>
@@ -325,7 +343,7 @@ export default function AdminPage() {
           )}
           {detailItem && 'reason' in detailItem && ( // It's a ServiceRequest
             <>
-              <DialogHeader><DialogTitle>Service Request #{detailItem.id}</DialogTitle><DialogDescription>From: {detailItem.userName} ({detailItem.userEmail}) for device {detailItem.deviceName}</DialogDescription></DialogHeader>
+              <DialogHeader><DialogTitle>Service Request #{detailItem.id}</DialogTitle><DialogDescription>From: {detailItem.userName || 'N/A'} ({detailItem.userEmail || 'N/A'}) for device {detailItem.deviceName || 'N/A'}</DialogDescription></DialogHeader>
               <div className="space-y-4 my-4">
                 <div><p className="font-semibold text-sm">Reason:</p><p>{detailItem.reason}</p></div>
                 <div><p className="font-semibold text-sm">Contact Phone:</p><p>{detailItem.phoneNumber}</p></div>

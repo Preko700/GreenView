@@ -14,8 +14,8 @@ export async function GET(request: NextRequest) {
                 u.email as userEmail,
                 d.name as deviceName
             FROM service_requests r
-            JOIN users u ON r.userId = u.id
-            JOIN devices d ON r.deviceId = d.serialNumber
+            LEFT JOIN users u ON r.userId = u.id
+            LEFT JOIN devices d ON r.deviceId = d.serialNumber
             ORDER BY r.timestamp DESC
         `);
 

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
                 d.activationDate,
                 d.warrantyEndDate
             FROM devices d
-            JOIN users u ON d.userId = u.id
+            LEFT JOIN users u ON d.userId = u.id
             ORDER BY d.activationDate DESC
         `);
 

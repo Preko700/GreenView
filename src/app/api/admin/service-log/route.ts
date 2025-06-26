@@ -11,7 +11,7 @@ const serviceLogSchema = z.object({
   serviceDate: z.number().int().positive(),
   actionsTaken: z.string().min(1),
   result: z.string().min(1),
-  serviceRequestId: z.coerce.number().int().positive().optional().nullable(),
+  serviceRequestId: z.coerce.number().int().positive().nullable(),
 });
 
 export async function POST(request: NextRequest) {
@@ -66,8 +66,8 @@ export async function GET(request: NextRequest) {
         u.name as userName,
         d.name as deviceName
       FROM service_log_entries l
-      JOIN users u ON l.userId = u.id
-      JOIN devices d ON l.deviceId = d.serialNumber
+      LEFT JOIN users u ON l.userId = u.id
+      LEFT JOIN devices d ON l.deviceId = d.serialNumber
     `;
     const params: any[] = [];
 
