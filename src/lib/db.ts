@@ -8,6 +8,21 @@ import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
+// Helper function to run a single column addition migration
+const runMigration = async (db: Database, tableName: string, columnName:string, columnDefinition: string) => {
+    try {
+        const columns = await db.all(`PRAGMA table_info(${tableName});`);
+        if (!columns.some(c => c.name === columnName)) {
+            console.log(`DB_MIGRATE: Column '${columnName}' not found in '${tableName}'. Adding it now.`);
+            await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition};`);
+            console.log(`DB_MIGRATE: Column '${columnName}' added successfully to '${tableName}'.`);
+        }
+    } catch (error) {
+        console.error(`DB_MIGRATE_ERROR: Failed to migrate column '${columnName}' for table '${tableName}'.`, error);
+        // Don't re-throw to allow app to continue if possible.
+    }
+};
+
 export async function getDb() {
   if (!db) {
     const dbPath = process.env.NODE_ENV === 'production' 
@@ -18,10 +33,12 @@ export async function getDb() {
       filename: dbPath,
       driver: sqlite3.Database,
     });
+    console.log("DB: Database connection established.");
 
     await db.exec('PRAGMA journal_mode = WAL;');
     await db.exec('PRAGMA foreign_keys = ON;');
 
+    // --- SCHEMA DEFINITIONS ---
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,8 +47,7 @@ export async function getDb() {
         password TEXT NOT NULL,
         country TEXT,
         registrationDate INTEGER,
-        profileImageUrl TEXT,
-        notificationsEnabled BOOLEAN DEFAULT TRUE
+        profileImageUrl TEXT
       );
     `);
 
@@ -39,7 +55,7 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS devices (
         serialNumber TEXT PRIMARY KEY,
         userId INTEGER NOT NULL,
-        hardwareIdentifier TEXT UNIQUE NOT NULL,
+        hardwareIdentifier TEXT UNIQUE,
         name TEXT NOT NULL,
         plantType TEXT,
         location TEXT,
@@ -51,8 +67,6 @@ export async function getDb() {
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
-    
-    await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
@@ -69,10 +83,6 @@ export async function getDb() {
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
           desiredUvLightState BOOLEAN DEFAULT FALSE,
-          requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
-          requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
-          requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
-          requestManualLightLevelReading BOOLEAN DEFAULT FALSE,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -100,6 +110,34 @@ export async function getDb() {
         timestamp INTEGER NOT NULL
       );
     `);
+
+    // --- ROBUST MIGRATIONS ---
+    console.log("DB: Running schema migrations if needed...");
+    try {
+        // Migration for the 'devices' table
+        const deviceColumns = await db.all("PRAGMA table_info(devices);");
+        if (!deviceColumns.some(c => c.name === 'hardwareIdentifier')) {
+          console.log("DB_MIGRATE: 'devices' table is missing 'hardwareIdentifier'. Migrating...");
+          await db.exec('ALTER TABLE devices ADD COLUMN hardwareIdentifier TEXT;');
+          const devicesToUpdate = await db.all('SELECT serialNumber FROM devices WHERE hardwareIdentifier IS NULL;');
+          for (const device of devicesToUpdate) {
+              const newHwId = `${device.serialNumber}_HWID_${Date.now()}`;
+              await db.run('UPDATE devices SET hardwareIdentifier = ? WHERE serialNumber = ?', newHwId, device.serialNumber);
+          }
+          await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
+          console.log(`DB_MIGRATE: 'hardwareIdentifier' column added, populated for ${devicesToUpdate.length} devices, and indexed.`);
+        }
+
+        // Migrations for the 'device_settings' table
+        await runMigration(db, 'device_settings', 'requestManualTemperatureReading', 'BOOLEAN DEFAULT FALSE');
+        await runMigration(db, 'device_settings', 'requestManualAirHumidityReading', 'BOOLEAN DEFAULT FALSE');
+        await runMigration(db, 'device_settings', 'requestManualSoilHumidityReading', 'BOOLEAN DEFAULT FALSE');
+        await runMigration(db, 'device_settings', 'requestManualLightLevelReading', 'BOOLEAN DEFAULT FALSE');
+        
+        console.log("DB: Migrations check completed.");
+    } catch (migrationError) {
+        console.error("DB_MIGRATE_FATAL: A critical error occurred during the migration process.", migrationError);
+    }
   }
   return db;
 }
