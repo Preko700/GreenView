@@ -18,7 +18,6 @@ async function addColumnIfNotExists(
     const columns = await db.all(`PRAGMA table_info(${tableName})`);
     if (!Array.isArray(columns)) {
         console.error(`Unexpected response from PRAGMA table_info(${tableName}):`, columns);
-        // Fallback to attempt adding the column anyway, as the table should exist.
         await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
         return;
     }
@@ -29,7 +28,10 @@ async function addColumnIfNotExists(
       await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
     }
   } catch (error: any) {
-    if (!error.message.includes('no such table')) {
+    if (error.message && error.message.includes(`table ${tableName} has no column named`)) {
+       // This handles a race condition where the check passes but the column doesn't exist yet
+       await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`).catch(e => console.error(`Fallback ADD COLUMN failed:`, e));
+    } else if (!error.message.includes('no such table')) {
       console.error(`Failed to check/add column ${columnName} to ${tableName}:`, error);
       throw error;
     }
@@ -67,7 +69,7 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS devices (
         serialNumber TEXT PRIMARY KEY,
         userId INTEGER NOT NULL,
-        hardwareIdentifier TEXT UNIQUE NOT NULL,
+        hardwareIdentifier TEXT UNIQUE,
         name TEXT NOT NULL,
         plantType TEXT,
         location TEXT,
@@ -80,14 +82,11 @@ export async function getDb() {
       );
     `);
     
-    // Perform non-destructive migrations for the devices table
     await addColumnIfNotExists(db, 'devices', 'hardwareIdentifier', 'TEXT');
-    // Populate null hardwareIdentifiers to avoid issues with code expecting a value.
-    // Using RANDOM() to ensure new values are unique enough to not violate potential future unique constraints.
     await db.run("UPDATE devices SET hardwareIdentifier = serialNumber || '_HWID_' || RANDOM() WHERE hardwareIdentifier IS NULL").catch((err: any) => {
-      // This might fail on a brand new DB if the column was just added and has a UNIQUE constraint from the get-go.
-      // It's safe to ignore this specific error.
-      console.warn("Note: Could not run migration to populate missing hardwareIdentifier. This is expected on a fresh database.", err.message);
+      if (err.message && !err.message.includes('UNIQUE constraint failed')) {
+        console.warn("Note: Could not run migration to populate missing hardwareIdentifier.", err.message);
+      }
     });
     await addColumnIfNotExists(db, 'devices', 'isPoweredByBattery', 'BOOLEAN DEFAULT FALSE');
     await addColumnIfNotExists(db, 'devices', 'lastUpdateTimestamp', 'INTEGER');
@@ -164,6 +163,41 @@ export async function getDb() {
         timestamp INTEGER NOT NULL
       );
     `);
+
+    // --- Service Request & Log Tables ---
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS service_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        deviceId TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        phoneNumber TEXT NOT NULL,
+        status TEXT DEFAULT 'PENDING',
+        timestamp INTEGER NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
+      );
+    `);
+     await db.run('CREATE INDEX IF NOT EXISTS idx_service_requests_status ON service_requests (status, timestamp DESC);');
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS service_log_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        technicianName TEXT NOT NULL,
+        userId INTEGER NOT NULL,
+        deviceId TEXT NOT NULL,
+        serviceDate INTEGER NOT NULL,
+        actionsTaken TEXT NOT NULL,
+        result TEXT NOT NULL,
+        serviceRequestId INTEGER,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE SET NULL,
+        FOREIGN KEY (serviceRequestId) REFERENCES service_requests(id) ON DELETE SET NULL
+      );
+    `);
+    await db.run('CREATE INDEX IF NOT EXISTS idx_service_log_entries_requestId ON service_log_entries (serviceRequestId);');
 
   }
   return db;

@@ -8,8 +8,8 @@ export async function GET(request: NextRequest) {
         const db = await getDb();
         
         // Select only necessary fields for the admin form
-        const users: Pick<User, 'id' | 'name' | 'email'>[] = await db.all(`
-            SELECT id, name, email FROM users ORDER BY name ASC
+        const users: Pick<User, 'id' | 'name'>[] = await db.all(`
+            SELECT id, name FROM users ORDER BY name ASC
         `);
 
         return NextResponse.json(users, { status: 200 });
