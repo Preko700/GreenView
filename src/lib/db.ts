@@ -25,7 +25,6 @@ export async function getDb() {
 
     // --- Final Schema Definitions ---
     // The following commands define the correct and final structure for all tables.
-    // They will only run if the tables do not already exist.
     
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
@@ -43,7 +42,7 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS devices (
         serialNumber TEXT PRIMARY KEY,
         userId INTEGER NOT NULL,
-        hardwareIdentifier TEXT UNIQUE,
+        hardwareIdentifier TEXT UNIQUE NOT NULL, 
         name TEXT NOT NULL,
         plantType TEXT,
         location TEXT,
@@ -103,15 +102,7 @@ export async function getDb() {
       );
     `);
     
-    // This is a simple, one-time migration attempt that will not block startup if it fails
-    // (e.g., if the column already exists). This helps users with slightly older DBs.
-    try {
-        await db.exec('ALTER TABLE devices ADD COLUMN hardwareIdentifier TEXT UNIQUE;');
-    } catch (e) {
-        // We expect this to fail if the column already exists, which is fine.
-    }
-
-    console.log("DB: Schema check/creation complete.");
+    console.log("DB: Schema checked/created successfully.");
   }
   return db;
 }

@@ -47,9 +47,7 @@ export default function AiAssistantPage() {
       const data = await response.json();
       if (!response.ok) {
         const errorMessage = data.message || 'Failed to fetch devices';
-        if (errorMessage.includes("Database schema error")) {
-          setDbSchemaError(errorMessage);
-        }
+        setDbSchemaError(errorMessage);
         throw new Error(errorMessage);
       }
       setDevices(data);
@@ -62,14 +60,11 @@ export default function AiAssistantPage() {
         setSelectedDeviceId(undefined);
       }
     } catch (err: any) {
-      if (!dbSchemaError) {
-        toast({ title: "Error", description: err.message || "Could not load your devices.", variant: "destructive" });
-      }
       console.error("Error fetching devices:", err.message);
     } finally {
       setIsLoadingDevices(false);
     }
-  }, [user, toast, selectedDeviceId, dbSchemaError]);
+  }, [user, toast, selectedDeviceId]);
 
   useEffect(() => {
     fetchDevices();

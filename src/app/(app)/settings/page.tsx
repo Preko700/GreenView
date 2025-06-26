@@ -127,9 +127,7 @@ export default function SettingsPage() {
       const data = await response.json();
       if (!response.ok) {
         const errorMessage = data.message || 'Failed to fetch devices';
-        if (String(errorMessage).includes("Database schema error")) {
-          setDbSchemaError(errorMessage);
-        }
+        setDbSchemaError(errorMessage);
         throw new Error(errorMessage);
       }
       setDevices(data);
@@ -141,17 +139,11 @@ export default function SettingsPage() {
         deviceForm.reset();
       }
     } catch (error: any) {
-      if (!dbSchemaError) { 
-        toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
-      }
       console.error("Error fetching devices:", error.message);
-      setDevices([]); 
-      setSelectedDeviceId(undefined);
-      setCurrentDeviceSettings(null);
     } finally {
       setIsDevicesLoading(false);
     }
-  }, [authUser, toast, deviceForm, selectedDeviceId, dbSchemaError]);
+  }, [authUser, toast, deviceForm, selectedDeviceId]);
   
   useEffect(() => {
     if (authUser) {

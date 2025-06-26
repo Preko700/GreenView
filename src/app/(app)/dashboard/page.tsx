@@ -46,9 +46,8 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         const errorMessage = data.message || 'Failed to fetch devices';
-        if (errorMessage.includes("Database schema error")) {
-          setDbSchemaError(errorMessage);
-        }
+        // Treat ANY persistent fetch error as a potential schema mismatch, as it's the most likely culprit.
+        setDbSchemaError(errorMessage);
         throw new Error(errorMessage);
       }
       
@@ -70,15 +69,14 @@ export default function DashboardPage() {
         }
       }
     } catch (error: any) {
-      if (!dbSchemaError) {
-        toast({ title: "Error Loading Devices", description: error.message, variant: "destructive" });
-      }
+      // The dbSchemaError state is now set for ANY device fetch error.
+      // So, we just log to console here and let the UI handle showing the alert.
       console.error("Error fetching devices on dashboard:", error.message);
     } finally {
       setIsLoadingDevices(false);
       setIsLocalStorageChecked(true);
     }
-  }, [user, toast, dbSchemaError, selectedDeviceId]);
+  }, [user, toast, selectedDeviceId]);
 
   useEffect(() => {
     fetchDevices();
