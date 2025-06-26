@@ -124,20 +124,14 @@ export default function SettingsPage() {
     setDbSchemaError(null); 
     try {
       const response = await fetch(`/api/devices?userId=${authUser.id}`);
+      const data = await response.json();
       if (!response.ok) {
-        let errorMessage = 'Failed to fetch devices';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          if (String(errorMessage).includes("schema")) {
-            setDbSchemaError(errorMessage);
-          }
-        } catch (e) {
-          errorMessage = `Failed to fetch devices. Please check the server logs.`;
+        const errorMessage = data.message || 'Failed to fetch devices';
+        if (String(errorMessage).includes("Database schema error")) {
+          setDbSchemaError(errorMessage);
         }
         throw new Error(errorMessage);
       }
-      const data: Device[] = await response.json();
       setDevices(data);
       if (data.length > 0 && (!selectedDeviceId || !data.find(d => d.serialNumber === selectedDeviceId))) {
         setSelectedDeviceId(data[0].serialNumber);
@@ -280,7 +274,13 @@ export default function SettingsPage() {
           <AlertTitle>Database Schema Error</AlertTitle>
           <AlertDescription>
             <p>{dbSchemaError}</p>
-            <p className="mt-2"><strong>To resolve this:</strong> Please delete the <code className="bg-muted px-1 py-0.5 rounded text-sm">greenview.db</code> file from your project root and restart the application. This will create a fresh database with the correct structure.</p>
+            <p className="mt-2"><strong>To resolve this in a development environment:</strong></p>
+            <ol className="list-decimal list-inside mt-1 space-y-1">
+              <li>Stop your Next.js development server.</li>
+              <li>Delete the <code className="bg-muted px-1 py-0.5 rounded text-sm">greenview.db</code> file from the root of your project.</li>
+              <li>Restart your Next.js development server (this will recreate the database with the correct schema).</li>
+              <li>You will need to register your user and devices again.</li>
+            </ol>
           </AlertDescription>
         </Alert>
       </div>

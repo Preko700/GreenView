@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { provideGreenhouseAdvice, type ProvideGreenhouseAdviceInput, type ProvideGreenhouseAdviceOutput } from '@/ai/flows/greenhouse-ai-assistant';
 import { Bot, Zap, Settings, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-// Removed getMockSensorData as it's no longer the primary source
 import type { Device, SensorData } from '@/lib/types';
 import { SensorType } from '@/lib/types';
 import {
@@ -42,19 +41,20 @@ export default function AiAssistantPage() {
   const fetchDevices = useCallback(async () => {
     if (!user) return;
     setIsLoadingDevices(true);
-    setDbSchemaError(null); // Reset schema error on new fetch
+    setDbSchemaError(null);
     try {
       const response = await fetch(`/api/devices?userId=${user.id}`);
+      const data = await response.json();
       if (!response.ok) {
-         const errorData = await response.json().catch(() => ({ message: 'Failed to fetch devices' }));
-        throw new Error(errorData.message || 'Failed to fetch devices');
+        const errorMessage = data.message || 'Failed to fetch devices';
+        if (errorMessage.includes("Database schema error")) {
+          setDbSchemaError(errorMessage);
+        }
+        throw new Error(errorMessage);
       }
-      const data: Device[] = await response.json();
       setDevices(data);
       if (data.length > 0 && !selectedDeviceId) {
-         // If a device was previously selected and still exists, keep it. Otherwise, select the first.
          if (selectedDeviceId && data.some(d => d.serialNumber === selectedDeviceId)) {
-            // keep current selectedDeviceId
          } else {
            setSelectedDeviceId(data[0].serialNumber);
          }
@@ -62,16 +62,14 @@ export default function AiAssistantPage() {
         setSelectedDeviceId(undefined);
       }
     } catch (err: any) {
-      const errorMessage = err.message || "Could not load your devices.";
-      if (errorMessage.includes("Database schema error")) {
-        setDbSchemaError(errorMessage);
+      if (!dbSchemaError) {
+        toast({ title: "Error", description: err.message || "Could not load your devices.", variant: "destructive" });
       }
-      toast({ title: "Error", description: errorMessage, variant: "destructive" });
-      console.error("Error fetching devices:", err.message); // Log the message part of the error
+      console.error("Error fetching devices:", err.message);
     } finally {
       setIsLoadingDevices(false);
     }
-  }, [user, toast, selectedDeviceId]);
+  }, [user, toast, selectedDeviceId, dbSchemaError]);
 
   useEffect(() => {
     fetchDevices();
@@ -82,7 +80,6 @@ export default function AiAssistantPage() {
     const fetchInitialSensorData = async () => {
       if (selectedDeviceId && user && devices.length > 0) {
         try {
-          // Fetch real sensor data
           const sensorResponse = await fetch(`/api/sensor-data/${selectedDeviceId}?userId=${user.id}`);
           let sensorReadings: Partial<Record<SensorType, number>> = {};
 
@@ -109,7 +106,7 @@ export default function AiAssistantPage() {
         } catch (error) {
           console.error("Error fetching initial sensor data for AI Assistant:", error);
            const device = devices.find(d => d.serialNumber === selectedDeviceId);
-           setInitialFormValues({ // Fallback to device data only if sensor fetch fails
+           setInitialFormValues({
             plantType: device?.plantType || '',
             location: device?.location || '',
           });
@@ -121,11 +118,11 @@ export default function AiAssistantPage() {
             location: device?.location || '',
         });
       } else {
-        setInitialFormValues(undefined); // Clear if no device selected or no devices
+        setInitialFormValues(undefined);
       }
     };
 
-    if (devices.length > 0 || !isLoadingDevices) { // Run if devices are loaded or loading is finished (even if empty)
+    if (devices.length > 0 || !isLoadingDevices) {
         fetchInitialSensorData();
     }
   }, [selectedDeviceId, devices, user, isLoadingDevices]);
@@ -178,7 +175,7 @@ export default function AiAssistantPage() {
         description="Get personalized advice for optimizing your greenhouse conditions."
       />
 
-    {isLoadingDevices && !selectedDeviceId && ( // Show main skeleton only if devices are loading AND no device is yet selected
+    {isLoadingDevices && !selectedDeviceId && (
         <Card className="lg:col-span-2 shadow-lg mt-8">
             <CardHeader><CardTitle><Skeleton className="h-6 w-3/4" /></CardTitle><CardDescription><Skeleton className="h-4 w-full" /></CardDescription></CardHeader>
             <CardContent><Skeleton className="h-60 w-full" /></CardContent>
@@ -197,7 +194,7 @@ export default function AiAssistantPage() {
           </Card>
     )}
 
-    {((!isLoadingDevices && devices.length > 0) || (isLoadingDevices && selectedDeviceId)) && ( // Render form area if devices loaded OR if still loading but a device is selected (e.g. from previous state)
+    {((!isLoadingDevices && devices.length > 0) || (isLoadingDevices && selectedDeviceId)) && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         <Card className="lg:col-span-2 shadow-lg">
           <CardHeader>
@@ -230,10 +227,10 @@ export default function AiAssistantPage() {
                 </Select>
               )}
             </div>
-            {(selectedDeviceId && initialFormValues !== undefined) ? ( // Check initialFormValues is not undefined
+            {(selectedDeviceId && initialFormValues !== undefined) ? (
                 <AiAssistantForm onSubmit={handleFormSubmit} isLoading={isLoadingAdvice} initialValues={initialFormValues} />
             ) : (selectedDeviceId && initialFormValues === undefined && isLoadingDevices) ? (
-                <Skeleton className="h-72 w-full" /> // Skeleton for form if device selected but values still loading
+                <Skeleton className="h-72 w-full" />
             ) : (
                 <p className="text-muted-foreground">Please select a device to input conditions.</p>
             )}
@@ -270,5 +267,3 @@ export default function AiAssistantPage() {
     </div>
   );
 }
-
-    

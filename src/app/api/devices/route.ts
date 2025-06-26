@@ -126,11 +126,9 @@ export async function GET(request: NextRequest) {
   const queryParams: (string | number)[] = [userId];
 
   if (hardwareIdentifierParam) {
-    // Buscando un dispositivo específico por hardwareIdentifier y userId
     sqlQuery = 'SELECT serialNumber, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp FROM devices WHERE userId = ? AND hardwareIdentifier = ?';
     queryParams.push(hardwareIdentifierParam);
   } else {
-    // Listando todos los dispositivos para un userId
     sqlQuery = 'SELECT serialNumber, hardwareIdentifier, name, plantType, location, activationDate, warrantyEndDate, isActive, isPoweredByBattery, lastUpdateTimestamp FROM devices WHERE userId = ? ORDER BY name ASC';
   }
 
@@ -149,18 +147,14 @@ export async function GET(request: NextRequest) {
     }
   } catch (error: any) {
     console.error(`Error fetching devices from API (server log): Query was: ${sqlQuery}. Error:`, error.message, error.stack);
+    
     let clientErrorMessage = 'An internal server error occurred while fetching devices.';
-    let errorDetails = error.message;
-
-    if (error.message && typeof error.message === 'string') {
-        if (error.message.toLowerCase().includes('sqlite_error')) {
-            clientErrorMessage = 'A database error occurred while fetching devices.';
-            if (error.message.toLowerCase().includes('no such column')) {
-                clientErrorMessage = 'Database schema error: A required column is missing. The database might be outdated or corrupted. If in a development environment, try deleting the greenview.db file and restarting the application to regenerate the database.';
-            }
-        }
+    
+    if (error.message && typeof error.message === 'string' && error.message.toLowerCase().includes('no such column')) {
+        clientErrorMessage = `Database schema error: A required column is missing. The database might be outdated. Please delete the 'greenview.db' file in your project and restart the app. Original error: ${error.message}`;
     }
-    return NextResponse.json({ message: clientErrorMessage, details: errorDetails }, { status: 500 });
+    
+    return NextResponse.json({ message: clientErrorMessage, details: error.message }, { status: 500 });
   }
 }
     

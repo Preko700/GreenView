@@ -42,22 +42,16 @@ export default function DashboardPage() {
     setDbSchemaError(null);
     try {
       const response = await fetch(`/api/devices?userId=${user.id}`);
+      const data = await response.json();
+
       if (!response.ok) {
-        let errorMessage = 'Failed to fetch devices';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          if (errorMessage.includes("Database schema error")) {
-            setDbSchemaError(errorMessage);
-          }
-        } catch (e) {
-           const textError = await response.text().catch(() => "Server returned an unreadable error.");
-           console.error("Non-JSON error response from /api/devices on dashboard:", textError);
-           errorMessage = `Failed to fetch devices. Server returned: ${response.status} ${response.statusText}. Check console for details.`;
+        const errorMessage = data.message || 'Failed to fetch devices';
+        if (errorMessage.includes("Database schema error")) {
+          setDbSchemaError(errorMessage);
         }
         throw new Error(errorMessage);
       }
-      const data: Device[] = await response.json();
+      
       setDevices(data);
 
       if (data.length > 0) {

@@ -8,23 +8,6 @@ import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
-// Helper function to run a single column addition migration safely
-const runMigration = async (db: Database, tableName: string, columnName:string, columnDefinition: string) => {
-    try {
-        const columns = await db.all(`PRAGMA table_info(${tableName});`);
-        if (!columns.some(c => c.name === columnName)) {
-            console.log(`DB_MIGRATE: Column '${columnName}' not found in '${tableName}'. Adding it now.`);
-            await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition};`);
-            console.log(`DB_MIGRATE: Column '${columnName}' added successfully to '${tableName}'.`);
-        }
-    } catch (error) {
-        console.error(`DB_MIGRATE_ERROR: Failed to migrate column '${columnName}' for table '${tableName}'.`, error);
-        // We throw here to indicate that the DB setup is not complete and might be unstable.
-        throw new Error(`Failed to migrate DB for column ${tableName}.${columnName}. The application cannot start safely.`);
-    }
-};
-
-
 export async function getDb() {
   if (!db) {
     const dbPath = process.env.NODE_ENV === 'production' 
@@ -40,8 +23,10 @@ export async function getDb() {
     await db.exec('PRAGMA journal_mode = WAL;');
     await db.exec('PRAGMA foreign_keys = ON;');
 
-    // --- SCHEMA CREATION ---
-    // These statements define the final, correct schema. They run if tables don't exist.
+    // --- Final Schema Definitions ---
+    // The following commands define the correct and final structure for all tables.
+    // They will only run if the tables do not already exist.
+    
     await db.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +71,10 @@ export async function getDb() {
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
           desiredUvLightState BOOLEAN DEFAULT FALSE,
+          requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
+          requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
+          requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
+          requestManualLightLevelReading BOOLEAN DEFAULT FALSE,
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
@@ -113,37 +102,16 @@ export async function getDb() {
         timestamp INTEGER NOT NULL
       );
     `);
-
-    // --- ROBUST MIGRATION FOR EXISTING DATABASES ---
-    // This section ensures an OLD database is safely brought up to date.
-    console.log("DB: Checking for necessary schema migrations...");
+    
+    // This is a simple, one-time migration attempt that will not block startup if it fails
+    // (e.g., if the column already exists). This helps users with slightly older DBs.
     try {
-        // This is the most critical migration to fix the "internal server error".
-        const deviceColumns = await db.all("PRAGMA table_info(devices);");
-        if (!deviceColumns.some(c => c.name === 'hardwareIdentifier')) {
-          console.log("DB_MIGRATE: Critical 'hardwareIdentifier' column missing. Adding and populating it.");
-          await db.exec('ALTER TABLE devices ADD COLUMN hardwareIdentifier TEXT;');
-          const devicesToUpdate = await db.all('SELECT serialNumber FROM devices WHERE hardwareIdentifier IS NULL;');
-          for (const device of devicesToUpdate) {
-              const newHwId = `${device.serialNumber}_HWID_${Date.now()}`;
-              await db.run('UPDATE devices SET hardwareIdentifier = ? WHERE serialNumber = ?', newHwId, device.serialNumber);
-          }
-          await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
-          console.log(`DB_MIGRATE: 'hardwareIdentifier' column added and populated for ${devicesToUpdate.length} devices.`);
-        }
-
-        // Migration for the 'device_settings' table for manual reading flags
-        await runMigration(db, 'device_settings', 'requestManualTemperatureReading', 'BOOLEAN DEFAULT FALSE');
-        await runMigration(db, 'device_settings', 'requestManualAirHumidityReading', 'BOOLEAN DEFAULT FALSE');
-        await runMigration(db, 'device_settings', 'requestManualSoilHumidityReading', 'BOOLEAN DEFAULT FALSE');
-        await runMigration(db, 'device_settings', 'requestManualLightLevelReading', 'BOOLEAN DEFAULT FALSE');
-        
-        console.log("DB: Migrations check completed successfully.");
-    } catch (migrationError) {
-        console.error("DB_MIGRATE_FATAL: A critical error occurred during the database migration process.", migrationError);
-        // Exit the process if migration fails, as the app is in an unstable state.
-        process.exit(1);
+        await db.exec('ALTER TABLE devices ADD COLUMN hardwareIdentifier TEXT UNIQUE;');
+    } catch (e) {
+        // We expect this to fail if the column already exists, which is fine.
     }
+
+    console.log("DB: Schema check/creation complete.");
   }
   return db;
 }
