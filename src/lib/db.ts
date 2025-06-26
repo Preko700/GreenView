@@ -80,6 +80,18 @@ export async function getDb() {
       );
     `);
     
+    // Perform non-destructive migrations for the devices table
+    await addColumnIfNotExists(db, 'devices', 'hardwareIdentifier', 'TEXT');
+    // Populate null hardwareIdentifiers to avoid issues with code expecting a value.
+    // Using RANDOM() to ensure new values are unique enough to not violate potential future unique constraints.
+    await db.run("UPDATE devices SET hardwareIdentifier = serialNumber || '_HWID_' || RANDOM() WHERE hardwareIdentifier IS NULL").catch((err: any) => {
+      // This might fail on a brand new DB if the column was just added and has a UNIQUE constraint from the get-go.
+      // It's safe to ignore this specific error.
+      console.warn("Note: Could not run migration to populate missing hardwareIdentifier. This is expected on a fresh database.", err.message);
+    });
+    await addColumnIfNotExists(db, 'devices', 'isPoweredByBattery', 'BOOLEAN DEFAULT FALSE');
+    await addColumnIfNotExists(db, 'devices', 'lastUpdateTimestamp', 'INTEGER');
+
     await db.run('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices (userId);');
     await db.run('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
 
