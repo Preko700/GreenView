@@ -9,19 +9,6 @@ export async function POST(request: NextRequest) {
 
     const email = originalEmail.toLowerCase().trim();
 
-    // --- DEBUGGING OVERRIDE ---
-    if (email === 'debug@test.com') {
-      console.log(`[LOGIN API] DEBUG OVERRIDE: Successful login for ${email}.`);
-      const debugUser: User = {
-        id: 999,
-        name: 'Debug User',
-        email: 'debug@test.com',
-        registrationDate: Date.now(),
-      };
-      return NextResponse.json({ message: 'Login successful (DEBUG)', user: debugUser }, { status: 200 });
-    }
-    // --- END DEBUGGING OVERRIDE ---
-
     if (!password) {
       console.error('[LOGIN API] Missing password.');
       return NextResponse.json({ message: 'Password is required' }, { status: 400 });
