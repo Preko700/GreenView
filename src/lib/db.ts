@@ -8,36 +8,6 @@ import { TemperatureUnit } from '@/lib/types';
 
 let db: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 
-async function addColumnIfNotExists(
-  db: Database<sqlite3.Database, sqlite3.Statement>,
-  tableName: string,
-  columnName: string,
-  columnDefinition: string
-) {
-  try {
-    const columns = await db.all(`PRAGMA table_info(${tableName})`);
-    if (!Array.isArray(columns)) {
-        console.error(`Unexpected response from PRAGMA table_info(${tableName}):`, columns);
-        await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
-        return;
-    }
-    const columnExists = columns.some(col => col.name === columnName);
-
-    if (!columnExists) {
-      console.log(`Adding column ${columnName} to table ${tableName}...`);
-      await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
-    }
-  } catch (error: any) {
-    if (error.message && error.message.includes(`table ${tableName} has no column named`)) {
-       // This handles a race condition where the check passes but the column doesn't exist yet
-       await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`).catch(e => console.error(`Fallback ADD COLUMN failed:`, e));
-    } else if (!error.message.includes('no such table')) {
-      console.error(`Failed to check/add column ${columnName} to ${tableName}:`, error);
-      throw error;
-    }
-  }
-}
-
 export async function getDb() {
   if (!db) {
     const dbPath = process.env.NODE_ENV === 'production' 
@@ -69,7 +39,7 @@ export async function getDb() {
       CREATE TABLE IF NOT EXISTS devices (
         serialNumber TEXT PRIMARY KEY,
         userId INTEGER NOT NULL,
-        hardwareIdentifier TEXT UNIQUE,
+        hardwareIdentifier TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         plantType TEXT,
         location TEXT,
@@ -82,18 +52,7 @@ export async function getDb() {
       );
     `);
     
-    await addColumnIfNotExists(db, 'devices', 'hardwareIdentifier', 'TEXT');
-    await db.run("UPDATE devices SET hardwareIdentifier = serialNumber || '_HWID_' || RANDOM() WHERE hardwareIdentifier IS NULL").catch((err: any) => {
-      if (err.message && !err.message.includes('UNIQUE constraint failed')) {
-        console.warn("Note: Could not run migration to populate missing hardwareIdentifier.", err.message);
-      }
-    });
-    await addColumnIfNotExists(db, 'devices', 'isPoweredByBattery', 'BOOLEAN DEFAULT FALSE');
-    await addColumnIfNotExists(db, 'devices', 'lastUpdateTimestamp', 'INTEGER');
-
-    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices (userId);');
-    await db.run('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
-
+    await db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices (hardwareIdentifier);');
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS device_settings (
@@ -109,6 +68,7 @@ export async function getDb() {
           desiredLightState BOOLEAN DEFAULT FALSE,
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
+          desiredUvLightState BOOLEAN DEFAULT FALSE,
           requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
           requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
@@ -116,12 +76,6 @@ export async function getDb() {
           FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
-    
-    await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureLow', 'REAL DEFAULT 5');
-    await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureHigh', 'REAL DEFAULT 35');
-    await addColumnIfNotExists(db, 'device_settings', 'notificationSoilHumidityLow', 'REAL DEFAULT 20');
-    await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityLow', 'REAL DEFAULT 30');
-    await addColumnIfNotExists(db, 'device_settings', 'notificationAirHumidityHigh', 'REAL DEFAULT 80');
 
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sensor_readings (
@@ -134,24 +88,7 @@ export async function getDb() {
         FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
       );
     `);
-    await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_timestamp ON sensor_readings (deviceId, timestamp DESC);');
-    await db.run('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings (deviceId, type, timestamp DESC);');
     
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER NOT NULL,
-        deviceId TEXT NOT NULL,
-        type TEXT NOT NULL,
-        message TEXT NOT NULL,
-        isRead BOOLEAN DEFAULT FALSE,
-        timestamp INTEGER NOT NULL,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
-      );
-    `);
-    await db.run('CREATE INDEX IF NOT EXISTS idx_notifications_userId_isRead ON notifications (userId, isRead, timestamp DESC);');
-
     await db.exec(`
       CREATE TABLE IF NOT EXISTS support_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,42 +100,6 @@ export async function getDb() {
         timestamp INTEGER NOT NULL
       );
     `);
-
-    // --- Service Request & Log Tables ---
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS service_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId INTEGER NOT NULL,
-        deviceId TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        phoneNumber TEXT NOT NULL,
-        status TEXT DEFAULT 'PENDING',
-        timestamp INTEGER NOT NULL,
-        notes TEXT,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE CASCADE
-      );
-    `);
-     await db.run('CREATE INDEX IF NOT EXISTS idx_service_requests_status ON service_requests (status, timestamp DESC);');
-
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS service_log_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        technicianName TEXT NOT NULL,
-        userId INTEGER NOT NULL,
-        deviceId TEXT NOT NULL,
-        serviceDate INTEGER NOT NULL,
-        actionsTaken TEXT NOT NULL,
-        result TEXT NOT NULL,
-        serviceRequestId INTEGER,
-        timestamp INTEGER NOT NULL,
-        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL,
-        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE SET NULL,
-        FOREIGN KEY (serviceRequestId) REFERENCES service_requests(id) ON DELETE SET NULL
-      );
-    `);
-    await db.run('CREATE INDEX IF NOT EXISTS idx_service_log_entries_requestId ON service_log_entries (serviceRequestId);');
-
   }
   return db;
 }
@@ -224,13 +125,9 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   desiredLightState: false,
   desiredFanState: false,
   desiredIrrigationState: false,
+  desiredUvLightState: false,
   requestManualTemperatureReading: false,
   requestManualAirHumidityReading: false,
   requestManualSoilHumidityReading: false,
   requestManualLightLevelReading: false,
-  notificationTemperatureLow: 5,
-  notificationTemperatureHigh: 35,
-  notificationSoilHumidityLow: 20,
-  notificationAirHumidityLow: 30,
-  notificationAirHumidityHigh: 80,
 };

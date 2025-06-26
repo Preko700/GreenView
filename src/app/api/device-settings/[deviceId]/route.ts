@@ -16,14 +16,12 @@ const deviceSettingsUpdateSchema = z.object({
   temperatureFanOffThreshold: z.coerce.number().min(0).max(49),
   photoCaptureInterval: z.coerce.number().min(1).max(24),
   temperatureUnit: z.nativeEnum(TemperatureUnit),
-  // Notification settings
-  notificationTemperatureLow: z.coerce.number().min(-50).max(50),
-  notificationTemperatureHigh: z.coerce.number().min(-50).max(50),
-  notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
-  notificationAirHumidityLow: z.coerce.number().min(0).max(100),
-  notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
   // Auth
   userId: z.number().int().positive("User ID is required in request body for saving settings"), 
+})
+.refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
+    message: "Ventilation Temp Off must be less than Temp On threshold.",
+    path: ["temperatureFanOffThreshold"],
 });
 
 
@@ -49,8 +47,8 @@ export async function GET(
 
   try {
     const db = await getDb();
-    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ?', deviceId);
-    if (!deviceOwner || deviceOwner.userId !== userId) {
+    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ? AND userId = ?', deviceId, userId);
+    if (!deviceOwner) {
         return NextResponse.json({ message: 'Device not found or not authorized for this user' }, { status: 403 });
     }
 
@@ -111,29 +109,16 @@ export async function POST(
 
     const db = await getDb();
 
-    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ?', currentDeviceId);
-    if (!deviceOwner || deviceOwner.userId !== userId) {
+    const deviceOwner = await db.get('SELECT userId FROM devices WHERE serialNumber = ? AND userId = ?', currentDeviceId, userId);
+    if (!deviceOwner) {
         return NextResponse.json({ message: 'Device not found or not authorized to change settings' }, { status: 403 });
     }
     
-    if (settingsToSave.temperatureFanOffThreshold >= settingsToSave.temperatureThreshold) {
-        return NextResponse.json({ message: 'Ventilation Temp Off threshold must be less than Ventilation Temp On threshold.' }, { status: 400 });
-    }
-    if (settingsToSave.notificationTemperatureLow >= settingsToSave.notificationTemperatureHigh) {
-        return NextResponse.json({ message: 'Low temperature alert threshold must be less than high temperature alert threshold.' }, { status: 400 });
-    }
-     if (settingsToSave.notificationAirHumidityLow >= settingsToSave.notificationAirHumidityHigh) {
-        return NextResponse.json({ message: 'Low air humidity alert threshold must be less than high air humidity alert threshold.' }, { status: 400 });
-    }
-
     const result = await db.run(
       `UPDATE device_settings SET 
         measurementInterval = ?, autoIrrigation = ?, irrigationThreshold = ?, 
         autoVentilation = ?, temperatureThreshold = ?, temperatureFanOffThreshold = ?, 
-        photoCaptureInterval = ?, temperatureUnit = ?,
-        notificationTemperatureLow = ?, notificationTemperatureHigh = ?,
-        notificationSoilHumidityLow = ?, notificationAirHumidityLow = ?,
-        notificationAirHumidityHigh = ?
+        photoCaptureInterval = ?, temperatureUnit = ?
       WHERE deviceId = ?`,
       settingsToSave.measurementInterval,
       settingsToSave.autoIrrigation,
@@ -143,11 +128,6 @@ export async function POST(
       settingsToSave.temperatureFanOffThreshold,
       settingsToSave.photoCaptureInterval,
       settingsToSave.temperatureUnit,
-      settingsToSave.notificationTemperatureLow,
-      settingsToSave.notificationTemperatureHigh,
-      settingsToSave.notificationSoilHumidityLow,
-      settingsToSave.notificationAirHumidityLow,
-      settingsToSave.notificationAirHumidityHigh,
       currentDeviceId
     );
 
@@ -168,7 +148,6 @@ export async function POST(
         desiredFanState: !!updatedSettings.desiredFanState,
         desiredIrrigationState: !!updatedSettings.desiredIrrigationState,
       };
-
 
     return NextResponse.json({ message: 'Device settings saved successfully', settings: typedUpdatedSettings }, { status: 200 });
 

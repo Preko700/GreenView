@@ -42,7 +42,7 @@ export enum SensorType {
   DRAINAGE = "DRAINAGE",
 }
 
-export interface SensorReading {
+export interface SensorData {
   id?: number; 
   deviceId: string;
   type: SensorType | string;
@@ -95,15 +95,11 @@ export interface DeviceSettings {
   desiredLightState: boolean;
   desiredFanState: boolean;
   desiredIrrigationState: boolean;
+  desiredUvLightState: boolean;
   requestManualTemperatureReading?: boolean;
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
   requestManualLightLevelReading?: boolean;
-  notificationTemperatureLow: number;
-  notificationTemperatureHigh: number;
-  notificationSoilHumidityLow: number;
-  notificationAirHumidityLow: number;
-  notificationAirHumidityHigh: number;
 }
 
 export interface NavItem {
@@ -114,68 +110,4 @@ export interface NavItem {
   external?: boolean;
   label?: string;
   description?: string;
-}
-
-export type NotificationType = 'CRITICAL_HIGH' | 'CRITICAL_LOW' | 'WARNING' | 'INFO';
-
-export interface Notification {
-  id: number;
-  userId: number;
-  deviceId: string;
-  type: NotificationType;
-  message: string;
-  isRead: boolean;
-  timestamp: number;
-}
-
-export interface AdminDeviceView {
-  serialNumber: string;
-  userId: number;
-  deviceName: string;
-  userName: string | null;
-  activationDate: number;
-  warrantyEndDate: number | null;
-}
-
-// --- Types for Service Request & Log ---
-
-export enum ServiceRequestStatus {
-  PENDING = 'PENDING',
-  SCHEDULED = 'SCHEDULED',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-}
-
-export interface ServiceRequest {
-  id: number;
-  userId: number;
-  deviceId: string;
-  reason: string;
-  phoneNumber: string;
-  status: ServiceRequestStatus;
-  timestamp: number;
-  notes?: string | null;
-}
-
-export interface AdminServiceRequestView extends ServiceRequest {
-    userName: string | null;
-    userEmail: string | null;
-    deviceName: string | null;
-}
-
-export interface ServiceLogEntry {
-  id: number;
-  technicianName: string;
-  userId: number;
-  deviceId: string;
-  serviceDate: number;
-  actionsTaken: string;
-  result: string;
-  serviceRequestId?: number | null;
-  timestamp: number;
-}
-
-export interface AdminServiceLogView extends ServiceLogEntry {
-    userName: string | null;
-    deviceName: string | null;
 }
