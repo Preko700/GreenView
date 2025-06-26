@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 const deviceSchema = z.object({
   serialNumber: z.string().min(1, "Serial number is required"),
-  hardwareIdentifier: z.string().min(1, "Hardware identifier is required").optional(),
+  hardwareIdentifier: z.string().optional(),
   name: z.string().min(1, "Device name is required"),
   plantType: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
