@@ -208,7 +208,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         addLog("SYNC ERR: No se puede sincronizar configuración: usuario no autenticado.");
         return;
     }
-    addLog(`SYNC: Dispositivo Arduino (${hardwareId}). Obteniendo configuración completa...`);
+    addLog(`SYNC: Dispositivo Arduino (${hardwareId}). Obteniendo configuración...`);
     try {
       const deviceRes = await fetch(`/api/devices?userId=${user.id}&hardwareIdentifier=${hardwareId}`, { cache: 'no-store' });
       if (!deviceRes.ok) {
@@ -240,9 +240,6 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog(`SYNC: Config Auto Vent. = ${settings.autoVentilation}, Temp On = ${settings.temperatureThreshold}, Temp Off = ${settings.temperatureFanOffThreshold}.`);
       await sendSerialCommand({ command: "set_auto_ventilation", enabled: settings.autoVentilation, temp_on: settings.temperatureThreshold, temp_off: settings.temperatureFanOffThreshold });
       
-      addLog(`SYNC: Config Auto Techo = ${settings.autoRoofControl}, Abre = ${settings.roofOpenTime}, Cierra = ${settings.roofCloseTime}.`);
-      await sendSerialCommand({ command: "set_auto_roof", enabled: !!settings.autoRoofControl, open_time: settings.roofOpenTime, close_time: settings.roofCloseTime });
-
     } catch (error: any) {
       addLog(`SYNC ERR: Error al obtener/aplicar config completa: ${error.message}`);
       console.error("SYNC ERR: Error fetching/applying device config:", error);

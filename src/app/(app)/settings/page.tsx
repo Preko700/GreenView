@@ -69,10 +69,6 @@ const deviceSettingsSchema = z.object({
   notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
-  // Roof control settings
-  autoRoofControl: z.boolean(),
-  roofOpenTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format (HH:MM)"),
-  roofCloseTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Invalid time format (HH:MM)"),
 })
 .refine(data => data.temperatureFanOffThreshold < data.temperatureThreshold, {
     message: "Ventilation Temp Off must be less than Temp On threshold.",
@@ -131,9 +127,6 @@ export default function SettingsPage() {
         notificationSoilHumidityLow: 20,
         notificationAirHumidityLow: 30,
         notificationAirHumidityHigh: 80,
-        autoRoofControl: false,
-        roofOpenTime: "07:00",
-        roofCloseTime: "20:00",
     }
   });
 
@@ -235,9 +228,6 @@ export default function SettingsPage() {
             notificationSoilHumidityLow: data.notificationSoilHumidityLow ?? 20,
             notificationAirHumidityLow: data.notificationAirHumidityLow ?? 30,
             notificationAirHumidityHigh: data.notificationAirHumidityHigh ?? 80,
-            autoRoofControl: data.autoRoofControl ?? false,
-            roofOpenTime: data.roofOpenTime ?? "07:00",
-            roofCloseTime: data.roofCloseTime ?? "20:00",
           };
           deviceForm.reset(formValues);
 
@@ -454,27 +444,6 @@ export default function SettingsPage() {
                             <FormField control={deviceForm.control} name="temperatureFanOffThreshold" render={({ field }) => ( <FormItem><FormLabel>Ventilation Temp Off (°{deviceForm.getValues("temperatureUnit") === TemperatureUnit.CELSIUS ? 'C' : 'F'})</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormDescription>Turn fan OFF below this temp (0-49).</FormDescription><FormMessage /></FormItem> )}/>
                         </>}
                     </div>
-                  </div>
-                  
-                  <Separator />
-
-                  <div>
-                     <h3 className="text-lg font-medium text-foreground">Roof Control</h3>
-                     <div className="space-y-4 mt-2">
-                        <FormField control={deviceForm.control} name="autoRoofControl" render={({ field }) => ( <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                            <div className="space-y-0.5">
-                                <FormLabel>Auto Roof Control</FormLabel>
-                                <FormDescription>The Arduino logic primarily uses light levels. Time settings are for hardware with a Real-Time Clock (RTC).</FormDescription>
-                            </div>
-                            <FormControl><Switch checked={field.value} onCheckedChange={(checked) => { field.onChange(checked); deviceForm.trigger(["roofOpenTime", "roofCloseTime"]); }} /></FormControl>
-                         </FormItem> )}/>
-                        {deviceForm.watch("autoRoofControl") && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <FormField control={deviceForm.control} name="roofOpenTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Sun className="mr-2 h-4 w-4"/>Open Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to open the roof (if RTC is present).</FormDescription><FormMessage /></FormItem> )}/>
-                                <FormField control={deviceForm.control} name="roofCloseTime" render={({ field }) => ( <FormItem><FormLabel className="flex items-center"><Moon className="mr-2 h-4 w-4"/>Close Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl><FormDescription>Time to close the roof (if RTC is present).</FormDescription><FormMessage /></FormItem> )}/>
-                            </div>
-                        )}
-                     </div>
                   </div>
 
                   <Separator />

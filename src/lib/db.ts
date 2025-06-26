@@ -110,7 +110,6 @@ export async function getDb() {
           desiredLightState BOOLEAN DEFAULT FALSE,
           desiredFanState BOOLEAN DEFAULT FALSE,
           desiredIrrigationState BOOLEAN DEFAULT FALSE,
-          desiredUvLightState BOOLEAN DEFAULT FALSE,
           requestManualTemperatureReading BOOLEAN DEFAULT FALSE,
           requestManualAirHumidityReading BOOLEAN DEFAULT FALSE,
           requestManualSoilHumidityReading BOOLEAN DEFAULT FALSE,
@@ -119,9 +118,6 @@ export async function getDb() {
       );
     `);
     
-    await addColumnIfNotExists(db, 'device_settings', 'autoRoofControl', 'BOOLEAN DEFAULT FALSE');
-    await addColumnIfNotExists(db, 'device_settings', 'roofOpenTime', `TEXT DEFAULT '07:00'`);
-    await addColumnIfNotExists(db, 'device_settings', 'roofCloseTime', `TEXT DEFAULT '20:00'`);
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureLow', 'REAL DEFAULT 5');
     await addColumnIfNotExists(db, 'device_settings', 'notificationTemperatureHigh', 'REAL DEFAULT 35');
     await addColumnIfNotExists(db, 'device_settings', 'notificationSoilHumidityLow', 'REAL DEFAULT 20');
@@ -226,7 +222,6 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   desiredLightState: false,
   desiredFanState: false,
   desiredIrrigationState: false,
-  desiredUvLightState: false,
   requestManualTemperatureReading: false,
   requestManualAirHumidityReading: false,
   requestManualSoilHumidityReading: false,
@@ -236,7 +231,4 @@ export const defaultDeviceSettings: Omit<DeviceSettings, 'deviceId'> = {
   notificationSoilHumidityLow: 20,
   notificationAirHumidityLow: 30,
   notificationAirHumidityHigh: 80,
-  autoRoofControl: false,
-  roofOpenTime: '07:00',
-  roofCloseTime: '20:00',
 };

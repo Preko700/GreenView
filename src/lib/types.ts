@@ -95,7 +95,6 @@ export interface DeviceSettings {
   desiredLightState: boolean;
   desiredFanState: boolean;
   desiredIrrigationState: boolean;
-  desiredUvLightState: boolean;
   requestManualTemperatureReading?: boolean;
   requestManualAirHumidityReading?: boolean;
   requestManualSoilHumidityReading?: boolean;
@@ -105,9 +104,6 @@ export interface DeviceSettings {
   notificationSoilHumidityLow: number;
   notificationAirHumidityLow: number;
   notificationAirHumidityHigh: number;
-  autoRoofControl?: boolean;
-  roofOpenTime?: string;
-  roofCloseTime?: string;
 }
 
 export interface NavItem {

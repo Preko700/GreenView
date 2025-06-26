@@ -22,10 +22,6 @@ const deviceSettingsUpdateSchema = z.object({
   notificationSoilHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityLow: z.coerce.number().min(0).max(100),
   notificationAirHumidityHigh: z.coerce.number().min(0).max(100),
-  // Roof control settings
-  autoRoofControl: z.boolean(),
-  roofOpenTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
-  roofCloseTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/),
   // Auth
   userId: z.number().int().positive("User ID is required in request body for saving settings"), 
 });
@@ -74,8 +70,6 @@ export async function GET(
         desiredLightState: !!settingsRow.desiredLightState,
         desiredFanState: !!settingsRow.desiredFanState,
         desiredIrrigationState: !!settingsRow.desiredIrrigationState,
-        desiredUvLightState: !!settingsRow.desiredUvLightState,
-        autoRoofControl: !!settingsRow.autoRoofControl,
       };
       return NextResponse.json(typedSettings, { status: 200 });
     } else {
@@ -139,8 +133,7 @@ export async function POST(
         photoCaptureInterval = ?, temperatureUnit = ?,
         notificationTemperatureLow = ?, notificationTemperatureHigh = ?,
         notificationSoilHumidityLow = ?, notificationAirHumidityLow = ?,
-        notificationAirHumidityHigh = ?,
-        autoRoofControl = ?, roofOpenTime = ?, roofCloseTime = ?
+        notificationAirHumidityHigh = ?
       WHERE deviceId = ?`,
       settingsToSave.measurementInterval,
       settingsToSave.autoIrrigation,
@@ -155,9 +148,6 @@ export async function POST(
       settingsToSave.notificationSoilHumidityLow,
       settingsToSave.notificationAirHumidityLow,
       settingsToSave.notificationAirHumidityHigh,
-      settingsToSave.autoRoofControl,
-      settingsToSave.roofOpenTime,
-      settingsToSave.roofCloseTime,
       currentDeviceId
     );
 
@@ -177,8 +167,6 @@ export async function POST(
         desiredLightState: !!updatedSettings.desiredLightState,
         desiredFanState: !!updatedSettings.desiredFanState,
         desiredIrrigationState: !!updatedSettings.desiredIrrigationState,
-        desiredUvLightState: !!updatedSettings.desiredUvLightState,
-        autoRoofControl: !!updatedSettings.autoRoofControl,
       };
 
 

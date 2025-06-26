@@ -6,7 +6,7 @@ import { z } from 'zod';
 const controlSchema = z.object({
   deviceId: z.string().min(1, "Device ID is required"),
   userId: z.number().int().positive("User ID is required"), // For authorization
-  actuator: z.enum(["light", "fan", "irrigation", "uvLight"]),
+  actuator: z.enum(["light", "fan", "irrigation"]),
   state: z.enum(["on", "off"]),
 });
 
@@ -42,9 +42,6 @@ export async function POST(request: NextRequest) {
         break;
       case 'irrigation':
         fieldToUpdate = 'desiredIrrigationState';
-        break;
-      case 'uvLight':
-        fieldToUpdate = 'desiredUvLightState';
         break;
       default:
         // Should be caught by Zod enum, but as a fallback
