@@ -111,9 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       toast({ 
         title: "Registration Successful!", 
-        description: `Welcome, ${data.user.name}! Please log in to continue.` 
+        description: `Welcome, ${data.user.name}! Logging you in...` 
       });
-      router.push('/login'); 
+      
+      // Directly log the user in with the data from the registration response
+      setUser(data.user);
+      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(data.user));
+      router.push('/dashboard'); 
 
     } catch (error: any) {
       console.error("Registration error in AuthContext:", error);
