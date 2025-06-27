@@ -29,143 +29,147 @@ export default function DashboardPage() {
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorData[]>([]);
   
-  const [isLoadingDevices, setIsLoadingDevices] = useState(true);
-  const [isLoadingSensorData, setIsLoadingSensorData] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Simplified loading state for initial load
+  const [isRefreshingSensors, setIsRefreshingSensors] = useState(false); // For subsequent refreshes
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
-  const [isLocalStorageChecked, setIsLocalStorageChecked] = useState(false);
 
   const lastProcessedLogCountRef = useRef(0);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const fetchDevices = useCallback(async () => {
+  const fetchSensorDataForDevice = useCallback(async (deviceId: string, isPoll = false) => {
     if (!user) return;
-    setIsLoadingDevices(true);
-    setDbSchemaError(null);
+    if (!isPoll) {
+      setIsRefreshingSensors(true);
+    }
+
     try {
-      const response = await fetch(`/api/devices?userId=${user.id}`);
-      const data = await response.json();
+        const [sensorResult, deviceResult] = await Promise.allSettled([
+            fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`),
+            fetch(`/api/devices/${deviceId}?userId=${user.id}`)
+        ]);
 
-      if (!response.ok) {
-        const errorMessage = data.message || 'Failed to fetch devices';
-        // Treat ANY persistent fetch error as a potential schema mismatch, as it's the most likely culprit.
-        setDbSchemaError(errorMessage);
-        throw new Error(errorMessage);
-      }
-      
-      setDevices(data);
-
-      if (data.length > 0) {
-        const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
-        if (storedDeviceId && data.some(d => d.serialNumber === storedDeviceId)) {
-          setSelectedDeviceId(storedDeviceId);
-        } else if (!selectedDeviceId && data.length > 0) { 
-          setSelectedDeviceId(data[0].serialNumber);
+        if (sensorResult.status === 'fulfilled' && sensorResult.value.ok) {
+            setSensorReadings(await sensorResult.value.json());
+        } else if (!isPoll) {
+            setSensorReadings([]);
+            toast({ title: "Error", description: "Could not fetch sensor data.", variant: "destructive" });
         }
-      } else {
-        setSelectedDeviceId(null);
-        setCurrentDevice(null);
-        setSensorReadings([]);
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem(SELECTED_DEVICE_ID_LS_KEY);
-        }
-      }
-    } catch (error: any) {
-      // The dbSchemaError state is now set for ANY device fetch error.
-      // So, we just log to console here and let the UI handle showing the alert.
-      console.error("Error fetching devices on dashboard:", error.message);
-    } finally {
-      setIsLoadingDevices(false);
-      setIsLocalStorageChecked(true);
-    }
-  }, [user, toast, selectedDeviceId]);
 
-  useEffect(() => {
-    fetchDevices();
-  }, [fetchDevices]);
-  
-  useEffect(() => {
-    if (selectedDeviceId && isLocalStorageChecked) {
-      localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: selectedDeviceId } }));
-      }
-    } else if (!selectedDeviceId && isLocalStorageChecked && typeof window !== 'undefined'){
-        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: null } }));
-    }
-  }, [selectedDeviceId, isLocalStorageChecked]);
-
-
-  const fetchSensorDataAndDeviceStatus = useCallback(async (deviceId: string, options: { triggeredByUsb?: boolean, isPolling?: boolean } = {}) => {
-    const { triggeredByUsb = false, isPolling = false } = options;
-    if (!user || !deviceId) return;
-    
-    // Show loading spinner for manual refresh or first-time polling, but not for subsequent background polls
-    if (!isPolling || sensorReadings.length === 0) {
-      setIsLoadingSensorData(true);
-    }
-
-    const deviceNameForToast = currentDevice?.name || deviceId;
-
-    const [sensorResult, deviceResult] = await Promise.allSettled([
-        fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`),
-        fetch(`/api/devices/${deviceId}?userId=${user.id}`)
-    ]);
-
-    let sensorDataFetched = false;
-
-    if (sensorResult.status === 'fulfilled' && sensorResult.value.ok) {
-        try {
-            const data: SensorData[] = await sensorResult.value.json();
-            setSensorReadings(data);
-            sensorDataFetched = true;
-        } catch (e) {
-            console.error("Dashboard: Failed to parse sensor data JSON", e);
-        }
-    } else if (!triggeredByUsb && !isPolling) {
-        // Only show error toast for manual refresh
-        const errorMessage = sensorResult.status === 'rejected' 
-            ? sensorResult.reason.message 
-            : (await sensorResult.value?.json().catch(() => ({})))?.message || 'Failed to fetch sensor data';
-        toast({ title: "Error Fetching Sensor Data", description: `Could not load data for ${deviceNameForToast}: ${errorMessage}`, variant: "destructive" });
-        setSensorReadings([]);
-    }
-
-    if (deviceResult.status === 'fulfilled' && deviceResult.value.ok) {
-        try {
+        if (deviceResult.status === 'fulfilled' && deviceResult.value.ok) {
             const updatedDeviceData: Device = await deviceResult.value.json();
             setCurrentDevice(updatedDeviceData);
-            setDevices(prevDevices => prevDevices.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
-        } catch (e) {
-            console.error("Dashboard: Failed to parse device data JSON", e);
+            setDevices(prev => prev.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
         }
-    } else if (!isPolling) {
-        console.warn(`[Dashboard] Failed to refresh device details for ${deviceId}.`);
+    } catch(e) {
+        console.error("Error fetching sensor data for device:", e);
+        if (!isPoll) {
+          toast({ title: "Error", description: "An unexpected error occurred while fetching data.", variant: "destructive" });
+        }
+    } finally {
+        if (!isPoll) {
+          setIsRefreshingSensors(false);
+        }
     }
-
-    setIsLoadingSensorData(false);
-
-    if (triggeredByUsb && sensorDataFetched) {
-        toast({ title: "Dashboard Updated", description: `Data for ${deviceNameForToast} refreshed via USB connection.`, duration: 3000 });
-    }
-  }, [user, toast, currentDevice?.name, sensorReadings.length]);
+  }, [user, toast]);
 
 
+  // Effect 1: Fetch all initial data (devices, and then sensors for the first device)
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchInitialData = async () => {
+      setIsLoading(true);
+      setDbSchemaError(null);
+      try {
+        // 1. Fetch devices
+        const deviceResponse = await fetch(`/api/devices?userId=${user.id}`);
+        const fetchedDevices = await deviceResponse.json();
+        if (!deviceResponse.ok) {
+          const errorMessage = fetchedDevices.message || 'Failed to fetch devices';
+          setDbSchemaError(errorMessage);
+          throw new Error(errorMessage);
+        }
+        setDevices(fetchedDevices);
+
+        if (fetchedDevices.length > 0) {
+          // 2. Determine which device to select
+          const storedDeviceId = localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY);
+          const deviceToSelect = 
+            fetchedDevices.find(d => d.serialNumber === storedDeviceId) || 
+            fetchedDevices[0];
+          
+          setSelectedDeviceId(deviceToSelect.serialNumber);
+          setCurrentDevice(deviceToSelect);
+
+          // 3. Fetch sensor data for the selected device
+          const sensorResponse = await fetch(`/api/sensor-data/${deviceToSelect.serialNumber}?userId=${user.id}`);
+          if (sensorResponse.ok) {
+            const fetchedSensors = await sensorResponse.json();
+            setSensorReadings(fetchedSensors);
+          } else {
+            console.warn(`Initial sensor data fetch failed for ${deviceToSelect.serialNumber}`);
+            setSensorReadings([]);
+          }
+        } else {
+          // No devices, clear everything
+          setSelectedDeviceId(null);
+          setCurrentDevice(null);
+          setSensorReadings([]);
+        }
+      } catch (error: any) {
+        console.error("Error fetching initial dashboard data:", error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchInitialData();
+  }, [user]);
+
+  // Effect 2: Update local storage when selection changes
   useEffect(() => {
     if (selectedDeviceId) {
-      const device = devices.find(d => d.serialNumber === selectedDeviceId);
-      setCurrentDevice(device || null);
-      if (device) {
-        fetchSensorDataAndDeviceStatus(device.serialNumber);
-      }
-    } else {
-        setCurrentDevice(null);
-        setSensorReadings([]);
+      localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
+      window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: selectedDeviceId } }));
+    } else if (!isLoading) { // Avoid clearing on initial load before selection is made
+       localStorage.removeItem(SELECTED_DEVICE_ID_LS_KEY);
+       window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: null } }));
     }
-  }, [selectedDeviceId, devices, fetchSensorDataAndDeviceStatus]);
+  }, [selectedDeviceId, isLoading]);
 
 
+  // Effect 3: Fetch new sensor data when device selection changes (but not on initial load)
   useEffect(() => {
-    if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || isLoadingSensorData) {
+    if (selectedDeviceId && !isLoading) {
+      const device = devices.find(d => d.serialNumber === selectedDeviceId);
+      if (device) {
+        setCurrentDevice(device);
+        fetchSensorDataForDevice(selectedDeviceId, false);
+      }
+    }
+  }, [selectedDeviceId]);
+
+
+  // Effect 4: Polling for active device
+  useEffect(() => {
+    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+
+    if (selectedDeviceId && currentDevice?.isActive) {
+      pollingIntervalRef.current = setInterval(() => {
+        if (!document.hidden) {
+          fetchSensorDataForDevice(selectedDeviceId, true);
+        }
+      }, SENSOR_POLLING_INTERVAL_MS);
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+    };
+  }, [selectedDeviceId, currentDevice?.isActive, fetchSensorDataForDevice]);
+  
+  // Effect 5: Refresh on USB data
+  useEffect(() => {
+    if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || isRefreshingSensors) {
       lastProcessedLogCountRef.current = usbLogMessages.length;
       return;
     }
@@ -179,51 +183,19 @@ export default function DashboardPage() {
 
     if (hasNewRelevantLog) {
       console.log(`[Dashboard] USB Update: New relevant log found for ${currentDevice.name}. Refreshing data.`);
-      fetchSensorDataAndDeviceStatus(currentDevice.serialNumber, { triggeredByUsb: true });
+      fetchSensorDataForDevice(currentDevice.serialNumber, false);
+      toast({ title: "Dashboard Updated", description: `Data for ${currentDevice.name} refreshed via USB connection.`, duration: 3000 });
     }
     lastProcessedLogCountRef.current = usbLogMessages.length;
 
-  }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataAndDeviceStatus, isLoadingSensorData]);
-
-  // New Effect for Polling
-  useEffect(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
-    if (selectedDeviceId && currentDevice?.isActive) {
-      pollingIntervalRef.current = setInterval(() => {
-        if (!document.hidden) {
-          console.log(`[Dashboard] Polling for sensor data for ${selectedDeviceId}`);
-          fetchSensorDataAndDeviceStatus(selectedDeviceId, { isPolling: true });
-        }
-      }, SENSOR_POLLING_INTERVAL_MS);
-    }
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, [selectedDeviceId, currentDevice?.isActive, fetchSensorDataAndDeviceStatus]);
-
-
-  const handleRefreshSensorData = () => {
-    if (selectedDeviceId) {
-      fetchSensorDataAndDeviceStatus(selectedDeviceId);
-      toast({title: "Refreshing Sensor Data...", description: `Requesting latest readings for ${currentDevice?.name || 'device'}.`});
-    }
-  };
+  }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataForDevice, isRefreshingSensors, toast]);
 
   const getSensorValue = (type: SensorType) => sensorReadings.find(s => s.type === type);
 
   if (dbSchemaError) {
     return (
       <div className="container mx-auto py-8 px-4 md:px-6">
-        <PageHeader
-          title="Greenhouse Dashboard"
-          description="Monitor your greenhouse devices and sensor data."
-        />
+        <PageHeader title="Greenhouse Dashboard" description="Monitor your greenhouse devices and sensor data." />
         <Alert variant="destructive" className="mt-8">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Database Schema Error</AlertTitle>
@@ -248,8 +220,8 @@ export default function DashboardPage() {
         title="Greenhouse Dashboard"
         description="Monitor your greenhouse devices and sensor data."
         action={
-          <Button onClick={handleRefreshSensorData} disabled={isLoadingSensorData || !selectedDeviceId} variant="outline">
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingSensorData ? 'animate-spin' : ''}`} />
+          <Button onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} disabled={isRefreshingSensors || !selectedDeviceId} variant="outline">
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshingSensors ? 'animate-spin' : ''}`} />
             Refresh Sensor Data
           </Button>
         }
@@ -261,19 +233,19 @@ export default function DashboardPage() {
             devices={devices} 
             selectedDeviceId={selectedDeviceId} 
             onSelectDevice={setSelectedDeviceId}
-            isLoading={isLoadingDevices || !isLocalStorageChecked} 
+            isLoading={isLoading} 
         />
       </section>
 
-      {(isLoadingDevices || (selectedDeviceId && isLoadingSensorData && !currentDevice) || !isLocalStorageChecked) && (
+      {isLoading && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[SensorType.TEMPERATURE, SensorType.AIR_HUMIDITY, SensorType.SOIL_HUMIDITY, SensorType.LIGHT, SensorType.PH, SensorType.WATER_LEVEL].map((type) => (
-            <Skeleton key={type} className="h-36 w-full" />
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} className="h-36 w-full" />
           ))}
         </div>
       )}
 
-      {!isLoadingDevices && currentDevice && isLocalStorageChecked && (
+      {!isLoading && currentDevice && (
         <section>
           <div className="flex justify-between items-center mb-4">
             <div>
@@ -294,13 +266,13 @@ export default function DashboardPage() {
                  <span className="text-xs bg-yellow-100 text-yellow-700 font-medium px-2.5 py-0.5 rounded-full dark:bg-yellow-900 dark:text-yellow-300">Status Unknown</span>
             )}
           </div>
-          {isLoadingSensorData && sensorReadings.length === 0 ? (
+          {isRefreshingSensors && sensorReadings.length === 0 ? (
              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {[SensorType.TEMPERATURE, SensorType.AIR_HUMIDITY, SensorType.SOIL_HUMIDITY, SensorType.LIGHT, SensorType.PH, SensorType.WATER_LEVEL].map((type) => (
-                    <Skeleton key={`${type}-loading`} className="h-36 w-full" />
+                {[...Array(6)].map((_, i) => (
+                    <Skeleton key={`${i}-loading`} className="h-36 w-full" />
                 ))}
             </div>
-          ) : (currentDevice.isActive === undefined || currentDevice.isActive) ? ( 
+          ) : (
             sensorReadings.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.TEMPERATURE)} sensorType={SensorType.TEMPERATURE} />
@@ -315,33 +287,15 @@ export default function DashboardPage() {
                 <CardHeader> <CardTitle className="text-lg text-center">No Sensor Data</CardTitle> </CardHeader>
                 <CardContent className="text-center text-muted-foreground">
                   <p>No sensor readings available for this device yet.</p>
-                  <p className="mt-1">If this device is new, it may take a few moments for data to appear.</p>
-                   <p className="mt-1">You can try to <Button variant="link" className="p-0 h-auto" onClick={handleRefreshSensorData} disabled={isLoadingSensorData}>refresh the data</Button>.</p>
+                  <p className="mt-1">If the device is active, data should appear after the next poll or you can try to <Button variant="link" className="p-0 h-auto" onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} disabled={isRefreshingSensors}>refresh</Button>.</p>
                 </CardContent>
               </Card>
             )
-          ) : (
-             <Card className="mt-4">
-                <CardHeader> <CardTitle className="text-lg text-center">Device Inactive</CardTitle> </CardHeader>
-                <CardContent className="text-center text-muted-foreground">
-                  <p>This device is currently inactive. No sensor data available.</p>
-                  <p className="mt-2">You can manage device settings <Link href={`/settings`} className="text-primary underline">here</Link>.</p>
-                </CardContent>
-              </Card>
           )}
         </section>
       )}
       
-      {!isLoadingDevices && !currentDevice && devices.length > 0 && isLocalStorageChecked && (
-         <Card className="mt-8">
-            <CardHeader> <CardTitle className="text-lg text-center">No Device Selected</CardTitle> </CardHeader>
-            <CardContent className="text-center text-muted-foreground">
-              <p>Please select a device from the list above to view its sensor readings.</p>
-            </CardContent>
-          </Card>
-      )}
-      
-       {!isLoadingDevices && devices.length === 0 && !dbSchemaError && isLocalStorageChecked && (
+       {!isLoading && devices.length === 0 && !dbSchemaError && (
          <Card className="mt-8">
             <CardHeader> <CardTitle className="text-lg text-center">No Devices Available</CardTitle> </CardHeader>
             <CardContent className="text-center text-muted-foreground">
