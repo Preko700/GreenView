@@ -95,6 +95,11 @@ export async function getDb() {
       );
     `);
     
+    // Add indexes for performance
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices(userId);');
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices(hardwareIdentifier);');
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings(deviceId, type, timestamp DESC);');
+    
     console.log("DB: Schema checked/created successfully.");
   }
   return db;

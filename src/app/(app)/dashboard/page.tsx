@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -18,6 +17,7 @@ import { SensorDisplayCard } from '@/components/dashboard/SensorDisplayCard';
 import { useUsbConnection } from '@/contexts/UsbConnectionContext';
 
 const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
+const SENSOR_POLLING_INTERVAL_MS = 15000; // Auto-refresh every 15 seconds
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const [isLocalStorageChecked, setIsLocalStorageChecked] = useState(false);
 
   const lastProcessedLogCountRef = useRef(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchDevices = useCallback(async () => {
     if (!user) return;
@@ -94,54 +95,59 @@ export default function DashboardPage() {
   }, [selectedDeviceId, isLocalStorageChecked]);
 
 
-  const fetchSensorDataAndDeviceStatus = useCallback(async (deviceId: string, triggeredByUsb: boolean = false) => {
+  const fetchSensorDataAndDeviceStatus = useCallback(async (deviceId: string, options: { triggeredByUsb?: boolean, isPolling?: boolean } = {}) => {
+    const { triggeredByUsb = false, isPolling = false } = options;
     if (!user || !deviceId) return;
-    setIsLoadingSensorData(true);
-
-    let sensorDataFetched = false;
-    let deviceStatusRefreshed = false;
-    let deviceNameForToast = currentDevice?.name || deviceId;
-
-    try {
-      const sensorResponse = await fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`);
-      if (!sensorResponse.ok) {
-        const errorData = await sensorResponse.json().catch(() => ({ message: 'Failed to fetch sensor data' }));
-        throw new Error(errorData.message || 'Failed to fetch sensor data');
-      }
-      const data: SensorData[] = await sensorResponse.json();
-      setSensorReadings(data);
-      sensorDataFetched = true;
-    } catch (error: any) {
-      if (!triggeredByUsb) {
-        toast({ title: "Error Sensor Data", description: `Could not load sensor data for ${deviceNameForToast}: ${error.message}`, variant: "destructive" });
-      } else {
-        console.warn(`[Dashboard] Silent fail fetching sensor data for ${deviceId} (USB trigger): ${error.message}`)
-      }
-      setSensorReadings([]);
+    
+    // Show loading spinner for manual refresh or first-time polling, but not for subsequent background polls
+    if (!isPolling || sensorReadings.length === 0) {
+      setIsLoadingSensorData(true);
     }
 
-    try {
-        const deviceDetailsRes = await fetch(`/api/devices/${deviceId}?userId=${user.id}`);
-        if (deviceDetailsRes.ok) {
-            const updatedDeviceData: Device = await deviceDetailsRes.json();
+    const deviceNameForToast = currentDevice?.name || deviceId;
+
+    const [sensorResult, deviceResult] = await Promise.allSettled([
+        fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`),
+        fetch(`/api/devices/${deviceId}?userId=${user.id}`)
+    ]);
+
+    let sensorDataFetched = false;
+
+    if (sensorResult.status === 'fulfilled' && sensorResult.value.ok) {
+        try {
+            const data: SensorData[] = await sensorResult.value.json();
+            setSensorReadings(data);
+            sensorDataFetched = true;
+        } catch (e) {
+            console.error("Dashboard: Failed to parse sensor data JSON", e);
+        }
+    } else if (!triggeredByUsb && !isPolling) {
+        // Only show error toast for manual refresh
+        const errorMessage = sensorResult.status === 'rejected' 
+            ? sensorResult.reason.message 
+            : (await sensorResult.value?.json().catch(() => ({})))?.message || 'Failed to fetch sensor data';
+        toast({ title: "Error Fetching Sensor Data", description: `Could not load data for ${deviceNameForToast}: ${errorMessage}`, variant: "destructive" });
+        setSensorReadings([]);
+    }
+
+    if (deviceResult.status === 'fulfilled' && deviceResult.value.ok) {
+        try {
+            const updatedDeviceData: Device = await deviceResult.value.json();
             setCurrentDevice(updatedDeviceData);
             setDevices(prevDevices => prevDevices.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
-            deviceNameForToast = updatedDeviceData.name;
-            deviceStatusRefreshed = true;
-        } else {
-            console.warn(`[Dashboard] Failed to refresh device details for ${deviceId}. Status: ${deviceDetailsRes.status}`);
+        } catch (e) {
+            console.error("Dashboard: Failed to parse device data JSON", e);
         }
-    } catch (error) {
-        console.error(`[Dashboard] Error refreshing device details for ${deviceId}:`, error);
+    } else if (!isPolling) {
+        console.warn(`[Dashboard] Failed to refresh device details for ${deviceId}.`);
     }
 
     setIsLoadingSensorData(false);
 
-    if (triggeredByUsb && (sensorDataFetched || deviceStatusRefreshed)) {
+    if (triggeredByUsb && sensorDataFetched) {
         toast({ title: "Dashboard Updated", description: `Data for ${deviceNameForToast} refreshed via USB connection.`, duration: 3000 });
     }
-
-  }, [user, toast, currentDevice?.name]);
+  }, [user, toast, currentDevice?.name, sensorReadings.length]);
 
 
   useEffect(() => {
@@ -149,7 +155,7 @@ export default function DashboardPage() {
       const device = devices.find(d => d.serialNumber === selectedDeviceId);
       setCurrentDevice(device || null);
       if (device) {
-        fetchSensorDataAndDeviceStatus(device.serialNumber, false);
+        fetchSensorDataAndDeviceStatus(device.serialNumber);
       }
     } else {
         setCurrentDevice(null);
@@ -173,17 +179,39 @@ export default function DashboardPage() {
 
     if (hasNewRelevantLog) {
       console.log(`[Dashboard] USB Update: New relevant log found for ${currentDevice.name}. Refreshing data.`);
-      fetchSensorDataAndDeviceStatus(currentDevice.serialNumber, true);
+      fetchSensorDataAndDeviceStatus(currentDevice.serialNumber, { triggeredByUsb: true });
     }
     lastProcessedLogCountRef.current = usbLogMessages.length;
 
   }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataAndDeviceStatus, isLoadingSensorData]);
 
+  // New Effect for Polling
+  useEffect(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    if (selectedDeviceId && currentDevice?.isActive) {
+      pollingIntervalRef.current = setInterval(() => {
+        if (!document.hidden) {
+          console.log(`[Dashboard] Polling for sensor data for ${selectedDeviceId}`);
+          fetchSensorDataAndDeviceStatus(selectedDeviceId, { isPolling: true });
+        }
+      }, SENSOR_POLLING_INTERVAL_MS);
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, [selectedDeviceId, currentDevice?.isActive, fetchSensorDataAndDeviceStatus]);
+
 
   const handleRefreshSensorData = () => {
     if (selectedDeviceId) {
-      fetchSensorDataAndDeviceStatus(selectedDeviceId, false);
-      toast({title: "Sensor Data Refreshing...", description: `Requesting latest readings for ${currentDevice?.name || 'device'}.`});
+      fetchSensorDataAndDeviceStatus(selectedDeviceId);
+      toast({title: "Refreshing Sensor Data...", description: `Requesting latest readings for ${currentDevice?.name || 'device'}.`});
     }
   };
 
