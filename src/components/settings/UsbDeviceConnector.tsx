@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useEffect } from 'react';
@@ -10,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useUsbConnection } from '@/contexts/UsbConnectionContext';
 
-interface UsbDeviceConnectorProps { // Renamed from UsbDeviceConnectorVisualProps for consistency
+interface UsbDeviceConnectorProps {
   settingsLastUpdatedTimestamp: number | null;
 }
 
@@ -18,23 +19,35 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
   const {
     isConnected,
     isConnecting,
+    isHandshakeComplete,
     portInfo,
     logMessages,
     connectedDeviceHardwareId,
     connectPort,
     disconnectPort,
     resyncConfiguration,
-    // addLog // No longer needed directly here, context handles logging
   } = useUsbConnection();
 
   useEffect(() => {
-    // Only attempt re-sync if timestamp is a number (meaning it changed from initial null)
-    if (typeof settingsLastUpdatedTimestamp === 'number' && isConnected && connectedDeviceHardwareId) {
-      // The context's addLog will be used internally by resyncConfiguration
+    if (typeof settingsLastUpdatedTimestamp === 'number' && isConnected && isHandshakeComplete && connectedDeviceHardwareId) {
       console.log(`[UsbDeviceConnector] Settings changed (ts: ${settingsLastUpdatedTimestamp}), re-syncing for ${connectedDeviceHardwareId}`);
       resyncConfiguration(connectedDeviceHardwareId);
     }
-  }, [settingsLastUpdatedTimestamp, isConnected, connectedDeviceHardwareId, resyncConfiguration]);
+  }, [settingsLastUpdatedTimestamp, isConnected, isHandshakeComplete, connectedDeviceHardwareId, resyncConfiguration]);
+
+  const getStatusBadge = () => {
+    if (isConnecting) {
+      return <Badge variant="secondary"><Loader2 className="mr-1 h-4 w-4 animate-spin" />Conectando...</Badge>;
+    }
+    if (isConnected) {
+      if (isHandshakeComplete && connectedDeviceHardwareId) {
+        return <Badge className="bg-green-600 hover:bg-green-700 text-white"><CheckCircle className="mr-1 h-4 w-4" />Conectado a {connectedDeviceHardwareId}</Badge>;
+      }
+      return <Badge variant="secondary"><Loader2 className="mr-1 h-4 w-4 animate-spin" />Estableciendo comunicación...</Badge>;
+    }
+    return <Badge variant="destructive"><XCircle className="mr-1 h-4 w-4" />Desconectado</Badge>;
+  };
+
 
   return (
     <Card className="shadow-lg">
@@ -56,7 +69,7 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
             </Button>
           ) : (
             <Button
-                onClick={() => disconnectPort(true)} // Pass true to show toast from context
+                onClick={() => disconnectPort(true)}
                 variant="destructive"
                 disabled={isConnecting} 
             >
@@ -64,11 +77,8 @@ export function UsbDeviceConnector({ settingsLastUpdatedTimestamp }: UsbDeviceCo
               Desconectar Dispositivo
             </Button>
           )}
-           <Badge variant={isConnected ? "default" : "secondary"} className={cn(isConnected ? "bg-green-600 hover:bg-green-700" : "bg-destructive hover:bg-destructive/90", "text-white")}>
-            {isConnecting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : isConnected ? <CheckCircle className="mr-1 h-4 w-4" /> : <XCircle className="mr-1 h-4 w-4" />}
-            {isConnecting ? "Conectando..." : isConnected ? `Conectado a ${connectedDeviceHardwareId || portInfo || 'dispositivo'}` : "Desconectado"}
-          </Badge>
-           {isConnected && connectedDeviceHardwareId && (
+          {getStatusBadge()}
+          {isConnected && isHandshakeComplete && connectedDeviceHardwareId && (
             <Button 
               onClick={() => resyncConfiguration(connectedDeviceHardwareId)} 
               variant="outline" 
