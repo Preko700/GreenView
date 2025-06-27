@@ -8,7 +8,7 @@ import { ControlCard } from '@/components/control/ControlCard';
 import type { Device, DeviceSettings, SensorType as AppSensorType } from '@/lib/types';
 import { SensorType } from '@/lib/types'; 
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon } from 'lucide-react'; 
+import { ArrowLeft, Lightbulb, Wind, Droplets, Zap, AlertTriangle, Thermometer, Sun, CloudDrizzle, Leaf, BarChartBig, Loader2, Settings as SettingsIcon, CheckCircle } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import Link from 'next/link';
@@ -220,6 +220,20 @@ export default function ControlPage() {
     }
   };
 
+  const handleSetAutoMode = async (actuator: 'led' | 'fan' | 'valve' | 'all') => {
+    if (!currentDeviceHardwareId || !isUsbConnected || usbHardwareId !== currentDeviceHardwareId) {
+      toast({ title: "USB Not Connected", description: "This feature requires a direct USB connection to the device.", variant: "destructive"});
+      return;
+    }
+    try {
+      await sendSerialCommand({ command: "set_auto_mode", device: actuator });
+      addUsbLog(`CONTROL: Comando 'set_auto_mode' para '${actuator}' enviado a ${currentDeviceHardwareId}.`);
+      toast({ title: "Auto Mode Re-enabled", description: `Control for ${actuator} has been returned to automatic.`});
+    } catch (error: any) {
+       toast({ title: "Error", description: `Failed to set auto mode: ${error.message}`, variant: "destructive" });
+    }
+  };
+
 
   if (isPageLoading) {
      return (
@@ -289,12 +303,23 @@ export default function ControlPage() {
           </AlertDescription>
         </Alert>
       )}
-       {isCurrentDeviceUsbConnected && !device.isActive && (
+       {isCurrentDeviceUsbConnected ? (
+         <Card className="mb-6 bg-green-50 border-green-200 dark:bg-green-900/20">
+            <CardContent className="pt-4">
+              <div className="flex items-center text-green-700 dark:text-green-300">
+                <CheckCircle className="mr-2 h-4 w-4" />
+                <span className="text-sm font-medium">
+                  USB Connected - Real-time control and auto-mode reset available.
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+       ) : (
          <Alert variant="default" className="mb-6 bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
             <Zap className="h-4 w-4 !text-blue-600 dark:!text-blue-400" />
-            <UiAlertTitle>Device Connected via USB</UiAlertTitle>
+            <UiAlertTitle>USB Disconnected</UiAlertTitle>
             <AlertDescription>
-                Direct commands can be sent via USB even if the backend marks the device as inactive. Backend status will update when the device syncs.
+                Direct commands and auto-mode resets are unavailable. Connect via USB in Settings for real-time control.
             </AlertDescription>
          </Alert>
       )}
@@ -303,11 +328,34 @@ export default function ControlPage() {
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-4 text-foreground/90">Actuator Controls</h2>
         {settings ? (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <ControlCard title="Main Light" icon={Lightbulb} isActive={settings.desiredLightState} isLoading={actuatorLoadingStates.light} onToggle={() => handleToggleActuator('light', settings.desiredLightState)} description="Toggle the main grow lights."/>
-            <ControlCard title="Ventilation Fan" icon={Wind} isActive={settings.desiredFanState} isLoading={actuatorLoadingStates.fan} onToggle={() => handleToggleActuator('fan', settings.desiredFanState)} description="Activate or deactivate the circulation fan." />
-            <ControlCard title="Irrigation System" icon={Droplets} isActive={settings.desiredIrrigationState} isLoading={actuatorLoadingStates.irrigation} onToggle={() => handleToggleActuator('irrigation', settings.desiredIrrigationState)} description={`Manual override for the watering system. Auto-irrigation is currently ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
-          </div>
+          <>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <ControlCard title="Main Light" icon={Lightbulb} isActive={settings.desiredLightState} isLoading={actuatorLoadingStates.light} onToggle={() => handleToggleActuator('light', settings.desiredLightState)} description="Toggle the main grow lights."/>
+              <ControlCard title="Ventilation Fan" icon={Wind} isActive={settings.desiredFanState} isLoading={actuatorLoadingStates.fan} onToggle={() => handleToggleActuator('fan', settings.desiredFanState)} description="Activate or deactivate the circulation fan." />
+              <ControlCard title="Irrigation System" icon={Droplets} isActive={settings.desiredIrrigationState} isLoading={actuatorLoadingStates.irrigation} onToggle={() => handleToggleActuator('irrigation', settings.desiredIrrigationState)} description={`Manual override for the watering system. Auto-irrigation is currently ${settings?.autoIrrigation ? 'ON' : 'OFF'}.`} />
+            </div>
+            
+            {isCurrentDeviceUsbConnected && (
+              <div className="mt-6 p-4 bg-muted/50 rounded-lg border">
+                <h3 className="text-sm font-medium mb-3">Return to Automatic Control (USB Only)</h3>
+                <div className="flex gap-2 flex-wrap">
+                  <Button onClick={() => handleSetAutoMode('led')} variant="outline" size="sm">
+                    <Lightbulb className="mr-2 h-4 w-4" />Auto Light
+                  </Button>
+                  <Button onClick={() => handleSetAutoMode('fan')} variant="outline" size="sm">
+                    <Wind className="mr-2 h-4 w-4" />Auto Fan
+                  </Button>
+                  <Button onClick={() => handleSetAutoMode('valve')} variant="outline" size="sm">
+                    <Droplets className="mr-2 h-4 w-4" />Auto Irrigation
+                  </Button>
+                  <Button onClick={() => handleSetAutoMode('all')} variant="secondary" size="sm">
+                    <SettingsIcon className="mr-2 h-4 w-4" />Auto All
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Use these buttons to exit manual mode and let the device's automatic settings take over again.</p>
+              </div>
+            )}
+          </>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {[...Array(3)].map((_, i) => <Skeleton key={`act-load-skl-${i}`} className="h-48 w-full" />)}

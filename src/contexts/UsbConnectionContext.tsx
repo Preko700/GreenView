@@ -246,28 +246,28 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     try {
       data = JSON.parse(jsonString);
     } catch (error: any) {
+      // Only log parse errors if handshake is complete, to avoid noise from initial buffer clearing.
       if (isHandshakeComplete) {
         addLog(`PARSE ERR: Error parseando JSON: '${jsonString}'. Error: ${error.message}`);
       }
       return;
     }
 
+    // Handshake logic: wait for the first "hello_arduino" message
     if (!isHandshakeComplete) {
       if (data.type === 'hello_arduino' && data.hardwareId) {
         addLog(`HANDSHAKE: 'hello_arduino' recibido. Estableciendo Hardware ID a ${data.hardwareId}.`);
         setConnectedDeviceHardwareId(data.hardwareId);
         setIsHandshakeComplete(true);
       }
+      // Silently ignore any other messages before handshake is complete
       return;
     }
     
+    // Post-handshake logic
     const displayHardwareId = connectedDeviceHardwareId;
 
-    if (!data.hardwareId) {
-      data.hardwareId = displayHardwareId;
-    }
-    
-    if (data.hardwareId !== displayHardwareId) {
+    if (data.hardwareId && data.hardwareId !== displayHardwareId) {
       addLog(`MSG WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${displayHardwareId}). Ignorando.`);
       return;
     }
@@ -284,8 +284,16 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog(`MSG: ACK de auto riego recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
     } else if (data.type === "ack_auto_ventilation_set") {
       addLog(`MSG: ACK de auto ventilación recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
-    } else if (data.type === "ack_auto_roof_set") {
-        addLog(`MSG: ACK de auto techo recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Abre: ${data.open_time}, Cierra: ${data.close_time}`);
+    } else if (data.type === "ack_led_set") {
+      addLog(`ACK: LED estado confirmado: ${data.state} por ${displayHardwareId}`);
+    } else if (data.type === 'ack_fan_set') {
+      addLog(`ACK: Ventilador estado confirmado: ${data.state} por ${displayHardwareId}`);
+    } else if (data.type === 'ack_valve_set') {
+      addLog(`ACK: Válvula estado confirmado: ${data.state} por ${displayHardwareId}`);
+    } else if (data.type === 'ack_auto_mode_set') {
+      addLog(`ACK: Modo automático activado para ${data.device} por ${displayHardwareId}`);
+    } else if (data.type === 'parse_error') {
+      addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
     } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined)) {
       addLog(`MSG: Datos de sensores recibidos de ${displayHardwareId}: ${jsonString}`);
       try {
