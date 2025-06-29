@@ -95,11 +95,23 @@ export async function getDb() {
       );
     `);
     
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS ticket_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticketId INTEGER NOT NULL,
+        technicianName TEXT NOT NULL,
+        logEntry TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (ticketId) REFERENCES support_tickets(id) ON DELETE CASCADE
+      );
+    `);
+
     // Add indexes for performance
     await db.exec('CREATE INDEX IF NOT EXISTS idx_devices_userId ON devices(userId);');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_devices_hardwareIdentifier ON devices(hardwareIdentifier);');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_sensor_readings_device_type_timestamp ON sensor_readings(deviceId, type, timestamp DESC);');
-    
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_ticket_logs_ticketId ON ticket_logs(ticketId);');
+
     console.log("DB: Schema checked/created successfully.");
   }
   return db;

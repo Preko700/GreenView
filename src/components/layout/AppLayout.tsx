@@ -17,18 +17,17 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserNav } from '@/components/layout/UserNav';
 import { Logo } from '@/components/Logo';
 import type { NavItem } from '@/lib/types';
-import { LayoutDashboard, BarChart3, ToggleLeft, Image as ImageIcon, Settings, LifeBuoy, Bot } from 'lucide-react';
+import { LayoutDashboard, BarChart3, ToggleLeft, Image as ImageIcon, Settings, LifeBuoy, Bot, ShieldCheck } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
-const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId'; // Debe coincidir con la clave en DashboardPage
+const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
 
-// Función para generar los items de navegación dinámicamente
-const generateNavItems = (deviceId: string | null): NavItem[] => {
+const generateBaseNavItems = (deviceId: string | null): NavItem[] => {
   const baseHref = (path: string) => deviceId ? `${path}/${deviceId}` : '/dashboard';
   const isActionDisabled = !deviceId;
-  // El tooltip se puede manejar directamente en SidebarNav si es necesario, basado en item.disabled
 
   return [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -41,15 +40,15 @@ const generateNavItems = (deviceId: string | null): NavItem[] => {
   ];
 };
 
-
 interface AppLayoutProps {
   children: ReactNode;
 }
 
 function CollapsibleSidebar() {
   const { open, setOpen, isMobile } = useSidebar();
+  const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(!open);
-  const [currentNavItems, setCurrentNavItems] = useState<NavItem[]>(generateNavItems(null));
+  const [currentNavItems, setCurrentNavItems] = useState<NavItem[]>([]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -67,22 +66,31 @@ function CollapsibleSidebar() {
   useEffect(() => {
     const updateNavItems = () => {
       const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
-      setCurrentNavItems(generateNavItems(storedDeviceId));
+      const baseItems = generateBaseNavItems(storedDeviceId);
+      const isAdmin = user?.email?.endsWith('@greenview-admin.com');
+
+      if (isAdmin) {
+        const supportIndex = baseItems.findIndex(item => item.title === 'Support');
+        if (supportIndex !== -1) {
+          baseItems.splice(supportIndex, 0, { title: 'Admin', href: '/admin', icon: ShieldCheck });
+        } else {
+          baseItems.push({ title: 'Admin', href: '/admin', icon: ShieldCheck });
+        }
+      }
+      
+      setCurrentNavItems(baseItems);
     };
 
-    updateNavItems(); // Initial update
+    updateNavItems();
 
-    // Listen for custom event from Dashboard when deviceId changes
     const handleDeviceChange = () => updateNavItems();
     window.addEventListener('selectedDeviceChanged', handleDeviceChange);
     
-    // Listen for direct storage changes (e.g., from other tabs, or if Dashboard uses direct localStorage.setItem)
     window.addEventListener('storage', (event) => {
         if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
             updateNavItems();
         }
     });
-
 
     return () => {
       window.removeEventListener('selectedDeviceChanged', handleDeviceChange);
@@ -90,10 +98,9 @@ function CollapsibleSidebar() {
         if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
             updateNavItems();
         }
-    });
+      });
     };
-  }, []);
-
+  }, [user]);
 
   return (
     <Sidebar collapsible="icon" side="left" variant="sidebar">
@@ -137,7 +144,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, []);
 
-
   if (isAuthPage) {
     return <>{children}</>;
   }
@@ -159,4 +165,3 @@ export function AppLayout({ children }: AppLayoutProps) {
     </SidebarProvider>
   );
 }
-

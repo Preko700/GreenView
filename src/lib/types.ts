@@ -27,6 +27,7 @@ export interface Device {
   isPoweredByBattery: boolean;
   lastUpdateTimestamp?: number;
   userId?: number; 
+  userName?: string; // For admin device list view
 }
 
 export enum SensorType {
@@ -73,6 +74,15 @@ export interface SupportTicket {
   status: TicketStatus;
   timestamp: number;
 }
+
+export interface TicketLog {
+  id: number;
+  ticketId: number;
+  technicianName: string;
+  logEntry: string;
+  timestamp: number;
+}
+
 
 export enum TemperatureUnit {
   CELSIUS = "CELSIUS",

@@ -69,7 +69,7 @@ export default function SupportPage() {
         action={
           user?.email?.endsWith('@greenview-admin.com') ? (
             <Button asChild>
-              <Link href="/admin/tickets">
+              <Link href="/admin">
                 <ShieldCheck className="mr-2 h-4 w-4" />
                 Admin Panel
               </Link>
