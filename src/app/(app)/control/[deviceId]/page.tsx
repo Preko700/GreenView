@@ -303,25 +303,34 @@ export default function ControlPage() {
           </AlertDescription>
         </Alert>
       )}
-       {isCurrentDeviceUsbConnected ? (
-         <Card className="mb-6 bg-green-50 border-green-200 dark:bg-green-900/20">
-            <CardContent className="pt-4">
-              <div className="flex items-center text-green-700 dark:text-green-300">
-                <CheckCircle className="mr-2 h-4 w-4" />
-                <span className="text-sm font-medium">
-                  USB Connected - Real-time control and auto-mode reset available.
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-       ) : (
-         <Alert variant="default" className="mb-6 bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
-            <Zap className="h-4 w-4 !text-blue-600 dark:!text-blue-400" />
-            <UiAlertTitle>USB Disconnected</UiAlertTitle>
+
+      {isCurrentDeviceUsbConnected ? (
+        <Card className="mb-6 bg-green-50 border-green-200 dark:bg-green-900/20">
+          <CardContent className="pt-4">
+            <div className="flex items-center text-green-700 dark:text-green-300">
+              <CheckCircle className="mr-2 h-4 w-4" />
+              <span className="text-sm font-medium">
+                USB Conectado a este dispositivo. Control en tiempo real y reseteo a modo automático disponibles.
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : isUsbConnected ? (
+        <Alert variant="default" className="mb-6 bg-orange-50 border-orange-400 text-orange-700 dark:bg-orange-900/30 dark:border-orange-700 dark:text-orange-300">
+            <AlertTriangle className="h-4 w-4 !text-orange-600 dark:!text-orange-400" />
+            <UiAlertTitle>USB Conectado a Otro Dispositivo</UiAlertTitle>
             <AlertDescription>
-                Direct commands and auto-mode resets are unavailable. Connect via USB in Settings for real-time control.
+                El puerto USB está ocupado por el dispositivo con HWID: {usbHardwareId}. El control en tiempo real para <strong>{device.name}</strong> no está disponible.
             </AlertDescription>
-         </Alert>
+        </Alert>
+      ) : (
+        <Alert variant="default" className="mb-6 bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-300">
+          <Zap className="h-4 w-4 !text-blue-600 dark:!text-blue-400" />
+          <UiAlertTitle>USB Desconectado</UiAlertTitle>
+          <AlertDescription>
+            Los comandos directos y el reseteo a modo automático no están disponibles. Conecta vía USB en Ajustes para control en tiempo real.
+          </AlertDescription>
+        </Alert>
       )}
 
 
