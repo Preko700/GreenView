@@ -17,7 +17,7 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserNav } from '@/components/layout/UserNav';
 import { Logo } from '@/components/Logo';
 import type { NavItem } from '@/lib/types';
-import { LayoutDashboard, BarChart3, ToggleLeft, Image as ImageIcon, Settings, LifeBuoy, Bot, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, BarChart3, ToggleLeft, Image as ImageIcon, Settings, LifeBuoy, Bot } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -67,17 +67,6 @@ function CollapsibleSidebar() {
     const updateNavItems = () => {
       const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
       const baseItems = generateBaseNavItems(storedDeviceId);
-      const isAdmin = user?.email?.endsWith('@greenview-admin.com');
-
-      if (isAdmin) {
-        const supportIndex = baseItems.findIndex(item => item.title === 'Support');
-        if (supportIndex !== -1) {
-          baseItems.splice(supportIndex, 0, { title: 'Admin', href: '/admin', icon: ShieldCheck });
-        } else {
-          baseItems.push({ title: 'Admin', href: '/admin', icon: ShieldCheck });
-        }
-      }
-      
       setCurrentNavItems(baseItems);
     };
 
