@@ -284,7 +284,7 @@ function AdminPanel() {
                   </div>
                 </div>
               </div>
-              <DialogFooter> <DialogClose asChild> <Button type="button" variant="secondary">Close</Button> </DialogClose> </DialogFooter>
+              <DialogFooter><DialogClose asChild><Button type="button" variant="secondary">Close</Button></DialogClose></DialogFooter>
             </>
           )}
         </DialogContent>
