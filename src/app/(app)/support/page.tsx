@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, HelpCircle, ArrowLeftRight, RefreshCw, AlertTriangle, MoreHorizontal, MessageSquare, Inbox, BookUser, HardDrive, CheckCircle } from 'lucide-react';
+import { Loader2, Send, HelpCircle, ArrowLeftRight, AlertTriangle, MoreHorizontal, MessageSquare, Inbox, BookUser, HardDrive } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,7 +23,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
 // --- Admin Panel Component ---
@@ -414,46 +413,17 @@ function UserSupportView() {
 
 // --- Main Page Component ---
 export default function SupportPage() {
-  const { user } = useAuth();
-  const isAdmin = useMemo(() => user?.email?.endsWith('@greenview-admin.com'), [user]);
   const [view, setView] = useState<'user' | 'admin'>('user');
 
-  useEffect(() => {
-    // If not admin, always show user view and prevent switching
-    if (!isAdmin) {
-      setView('user');
-    }
-  }, [isAdmin]);
-
   const pageHeaderAction = (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {/* A div wrapper is needed for the tooltip to work on a disabled button */}
-          <div tabIndex={0}>
-            <Button
-              onClick={() => {
-                if (isAdmin) setView(v => (v === 'user' ? 'admin' : 'user'));
-              }}
-              variant="outline"
-              disabled={!isAdmin}
-            >
-              <ArrowLeftRight className="mr-2 h-4 w-4" />
-              {isAdmin && view === 'user' && 'Switch to Admin Panel'}
-              {isAdmin && view === 'admin' && 'Switch to User View'}
-              {!isAdmin && 'Admin Panel'}
-            </Button>
-          </div>
-        </TooltipTrigger>
-        {!isAdmin && (
-          <TooltipContent>
-            <p>Log in with an admin account to access the panel.</p>
-          </TooltipContent>
-        )}
-      </Tooltip>
-    </TooltipProvider>
+    <Button
+      onClick={() => setView(v => (v === 'user' ? 'admin' : 'user'))}
+      variant="outline"
+    >
+      <ArrowLeftRight className="mr-2 h-4 w-4" />
+      {view === 'user' ? 'Switch to Admin Panel' : 'Switch to User View'}
+    </Button>
   );
-
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 space-y-8">
@@ -468,7 +438,7 @@ export default function SupportPage() {
       />
 
       {view === 'user' && <UserSupportView />}
-      {view === 'admin' && isAdmin && <AdminPanel />}
+      {view === 'admin' && <AdminPanel />}
     </div>
   );
 }
