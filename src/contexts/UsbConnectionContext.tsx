@@ -30,7 +30,6 @@ interface SerialReader {
   releaseLock: () => void;
 }
 
-
 interface UsbConnectionContextType {
   port: SerialPort | null;
   writer: SerialWriter | null;
@@ -62,6 +61,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
 
+  // Refs para acceso inmediato sin race conditions
   const keepReading = useRef(true);
   const disconnectInitiatedRef = useRef(false);
   const textDecoderStreamRef = useRef<TransformStream<Uint8Array, string> | null>(null);
@@ -69,16 +69,10 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   const lineBufferRef = useRef('');
   const isHandshakeCompleteRef = useRef(false);
   const connectedDeviceHardwareIdRef = useRef<string | null>(null);
-
-  const setIsHandshakeComplete = (value: boolean) => {
-    isHandshakeCompleteRef.current = value;
-    _setIsHandshakeComplete(value);
-  };
-
-  const setConnectedDeviceHardwareId = useCallback((hwId: string | null) => {
-    _setConnectedDeviceHardwareId(hwId);
-    connectedDeviceHardwareIdRef.current = hwId;
-  }, []);
+  
+  // ✅ NUEVA: Queue para mensajes que llegan durante handshake
+  const pendingMessagesRef = useRef<string[]>([]);
+  const handshakeInProgressRef = useRef(false);
 
   const addLog = useCallback((message: string) => {
     const now = new Date();
@@ -86,6 +80,212 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     const finalMessage = `${timeString}: ${message}`;
     setLogMessages(prev => [finalMessage, ...prev.slice(0, 499)]);
   }, []);
+
+  const processReceivedDataInternal = useCallback(async (jsonString: string) => {
+    addLog(`[DEBUG] Línea recibida: '${jsonString}'`);
+    let data;
+    try {
+      data = JSON.parse(jsonString);
+    } catch (error: any) {
+      if (isHandshakeCompleteRef.current) {
+        addLog(`PARSE ERR: Error parseando JSON: '${jsonString}'. Error: ${error.message}`);
+      }
+      return;
+    }
+
+    // ✅ PRIORIDAD ABSOLUTA: Handshake SIEMPRE se procesa primero
+    if (data.type === 'hello_arduino' && data.hardwareId) {
+      if (!isHandshakeCompleteRef.current) {
+        handshakeInProgressRef.current = true;
+        addLog(`HANDSHAKE: 'hello_arduino' recibido. Iniciando handshake para ${data.hardwareId}.`);
+        
+        // Establecimiento INMEDIATO del handshake
+        connectedDeviceHardwareIdRef.current = data.hardwareId;
+        isHandshakeCompleteRef.current = true;
+        handshakeInProgressRef.current = false;
+        
+        _setConnectedDeviceHardwareId(data.hardwareId);
+        _setIsHandshakeComplete(true);
+        
+        addLog(`HANDSHAKE: Hardware ID establecido. Ref=${connectedDeviceHardwareIdRef.current}, Progreso=${handshakeInProgressRef.current}`);
+        
+        // Procesar mensajes que llegaron durante el handshake
+        if(pendingMessagesRef.current.length > 0) {
+            addLog(`PENDING: Procesando ${pendingMessagesRef.current.length} mensajes pendientes post-handshake`);
+            const messagesToProcess = [...pendingMessagesRef.current];
+            pendingMessagesRef.current = [];
+            for (const msg of messagesToProcess) {
+                await processReceivedDataInternal(msg);
+            }
+        }
+      } else {
+        addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId} (post-handshake).`);
+      }
+      return;
+    }
+
+    // ✅ BUFFER: Si estamos en handshake, encolar mensaje
+    if (handshakeInProgressRef.current) {
+      addLog(`BUFFER: Mensaje encolado durante handshake: ${jsonString.substring(0, 100)}...`);
+      pendingMessagesRef.current.push(jsonString);
+      return;
+    }
+
+    // ✅ VALIDACIÓN: Esperar handshake completo
+    if (!isHandshakeCompleteRef.current) {
+      addLog(`MSG WARN: Mensaje ignorado, esperando handshake: ${jsonString}`);
+      return;
+    }
+
+    // ✅ CONSISTENCIA: Usar SIEMPRE la referencia para validación
+    const currentHardwareId = connectedDeviceHardwareIdRef.current;
+    
+    if (data.hardwareId && data.hardwareId !== currentHardwareId) {
+      addLog(`MSG WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${currentHardwareId}). Ignorando.`);
+      addLog(`[DEBUG] Estado refs - hwId: ${connectedDeviceHardwareIdRef.current}, handshake: ${isHandshakeCompleteRef.current}, progreso: ${handshakeInProgressRef.current}`);
+      return;
+    }
+
+    const isSensorData = data.hardwareId && (
+        data.temperature !== undefined ||
+        data.airHumidity !== undefined ||
+        data.soilHumidity !== undefined ||
+        data.lightLevel !== undefined ||
+        data.waterLevel !== undefined ||
+        data.ph !== undefined ||
+        data.drainageDistance !== undefined
+    );
+
+    if (isSensorData) {
+        addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
+        try {
+            addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
+            const response = await fetch('/api/ingest-sensor-data', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
+            addLog(`API: Datos de ${data.hardwareId} enviados al servidor: ${result.message}`);
+        } catch (apiError: any) {
+            addLog(`API ERR: Error enviando datos de ${data.hardwareId}: ${apiError.message}`);
+            console.error("API Ingest Error:", apiError);
+        }
+        return;
+    }
+
+    if (data.type) {
+        switch(data.type) {
+            case "ack_interval_set":
+              addLog(`MSG: ACK de intervalo recibido de ${currentHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
+              break;
+            case "ack_photo_interval_set":
+              addLog(`MSG: ACK de intervalo de foto recibido de ${currentHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
+              break;
+            case "ack_temp_unit_set":
+              addLog(`MSG: ACK de unidad de temperatura recibido de ${currentHardwareId}. Nueva unidad: ${data.new_unit}`);
+              break;
+            case "ack_auto_irrigation_set":
+              addLog(`MSG: ACK de auto riego recibido de ${currentHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
+              break;
+            case "ack_auto_ventilation_set":
+              addLog(`MSG: ACK de auto ventilación recibido de ${currentHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
+              break;
+            case "ack_led_set":
+              addLog(`ACK: LED estado confirmado: ${data.state} por ${currentHardwareId}`);
+              break;
+            case 'ack_fan_set':
+              addLog(`ACK: Ventilador estado confirmado: ${data.state} por ${currentHardwareId}`);
+              break;
+            case 'ack_valve_set':
+              addLog(`ACK: Válvula estado confirmado: ${data.state} por ${currentHardwareId}`);
+              break;
+            case 'ack_auto_mode_set':
+              addLog(`ACK: Modo automático activado para ${data.device} por ${currentHardwareId}`);
+              break;
+            case 'parse_error':
+              addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
+              break;
+            default:
+                addLog(`MSG WARN: Tipo de mensaje con 'type' desconocido de ${currentHardwareId}: ${jsonString}`);
+                break;
+        }
+        return;
+    }
+    
+    addLog(`MSG WARN: Mensaje no reconocido o datos incompletos de ${currentHardwareId}: ${jsonString}`);
+
+  }, [addLog]);
+
+  const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
+    addLog("RL: Preparando para iniciar bucle de lectura...");
+    keepReading.current = true;
+    
+    if (textDecoderStreamRef.current) {
+        try {
+           if (textDecoderStreamRef.current.writable?.locked) {
+             await textDecoderStreamRef.current.writable.getWriter().close();
+           }
+        } catch (e) { addLog("RL WARN: Error cerrando TextDecoderStream anterior.");}
+    }
+    textDecoderStreamRef.current = new TextDecoderStream();
+    lineBufferRef.current = '';
+
+    if (currentPortInstance.readable.locked) {
+        addLog("RL ERR: port.readable ya está bloqueado antes de pipeThrough. Abortando readLoop.");
+        internalDisconnectPortRef.current(false);
+        return;
+    }
+
+    const readableStream = currentPortInstance.readable.pipeThrough(textDecoderStreamRef.current);
+    streamReaderRef.current = readableStream.getReader() as unknown as SerialReader;
+    addLog("RL: Lector obtenido del TextDecoderStream. Iniciando bucle de lectura de strings...");
+
+    try {
+      while (keepReading.current) {
+        const { value, done } = await streamReaderRef.current.read();
+        if (done) {
+          if (!disconnectInitiatedRef.current) addLog("RL: Bucle finalizado (stream cerrado por 'done').");
+          break;
+        }
+        if (value) {
+          lineBufferRef.current += value;
+          let newlineIndex;
+          while ((newlineIndex = lineBufferRef.current.indexOf('\n')) >= 0) {
+            let line = lineBufferRef.current.substring(0, newlineIndex).trim();
+            lineBufferRef.current = lineBufferRef.current.substring(newlineIndex + 1);
+            
+            if (line) {
+              await processReceivedDataInternal(line);
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      if (!disconnectInitiatedRef.current && error.name !== 'AbortError' && error.name !== 'TypeError') {
+        addLog(`RL ERR: Error en el bucle de lectura: ${error.name} - ${error.message}`);
+        console.error("RL ERR: Read loop error:", error);
+      } else if (error.name === 'TypeError' && !disconnectInitiatedRef.current) {
+        addLog(`RL INFO: TypeError durante la lectura, posible desconexión abrupta: ${error.message}`);
+      }
+    } finally {
+      addLog("RL: Ejecutando bloque finally del bucle de lectura.");
+      if (streamReaderRef.current) {
+        try {
+            streamReaderRef.current.releaseLock();
+        } catch (e) {
+            // silent fail
+        }
+        streamReaderRef.current = null;
+      }
+      addLog("RL: Bucle de lectura detenido completamente (finally ejecutado).");
+      if (!disconnectInitiatedRef.current && isConnected) {
+         addLog("RL: Desconexión inesperada detectada en finally del bucle de lectura. Intentando limpieza.");
+         internalDisconnectPortRef.current(false);
+      }
+    }
+  }, [addLog, processReceivedDataInternal, isConnected]);
 
   const _internalDisconnectPort = useCallback(async (showToastUserInitiated = true) => {
     if (disconnectInitiatedRef.current && port === null) {
@@ -99,6 +299,10 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     disconnectInitiatedRef.current = true;
     addLog("DISC: Iniciando proceso de desconexión...");
     keepReading.current = false;
+
+    // ✅ RESET: Limpiar estados de handshake
+    handshakeInProgressRef.current = false;
+    pendingMessagesRef.current = [];
 
     const currentReader = streamReaderRef.current;
     if (currentReader) {
@@ -168,13 +372,15 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     
     lineBufferRef.current = '';
     setPortInfo(null);
-    setConnectedDeviceHardwareId(null);
-    setIsHandshakeComplete(false);
+    _setConnectedDeviceHardwareId(null);
+    _setIsHandshakeComplete(false);
+    connectedDeviceHardwareIdRef.current = null;
+    isHandshakeCompleteRef.current = false;
     setIsConnected(false);
     setIsConnecting(false);
     disconnectInitiatedRef.current = false;
     addLog("DISC: Estado de conexión reseteado post-desconexión.");
-  }, [addLog, toast, port, writer, setConnectedDeviceHardwareId]);
+  }, [addLog, toast, port, writer]);
 
   const internalDisconnectPortRef = useRef(_internalDisconnectPort);
   useEffect(() => {
@@ -185,10 +391,8 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     internalDisconnectPortRef.current(showToastUserInitiated);
   }, []);
   
-  const handleExternalDisconnectRef = useRef<(() => void) | null>(null);
-
   const sendSerialCommand = useCallback(async (command: Record<string, any>) => {
-    if (writer && isConnected && isHandshakeComplete && !disconnectInitiatedRef.current) {
+    if (writer && isConnected && isHandshakeCompleteRef.current && !disconnectInitiatedRef.current) {
       addLog(`CMD_INTERNAL: Attempting to send. isConnected: ${isConnected}, writer available: ${!!writer}`);
       try {
         const commandString = JSON.stringify(command) + '\n';
@@ -204,11 +408,11 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       let reason = "";
       if (!writer) reason += "sin escritor; ";
       if (!isConnected) reason += "no conectado; ";
-      if (!isHandshakeComplete) reason += "handshake incompleto; ";
+      if (!isHandshakeCompleteRef.current) reason += "handshake incompleto; ";
       if (disconnectInitiatedRef.current) reason += "desconexión iniciada; ";
       addLog(`CMD WARN: No se pudo enviar comando (pre-condición fallida): ${reason}`);
     }
-  }, [writer, isConnected, isHandshakeComplete, addLog]);
+  }, [writer, isConnected, addLog]);
 
   const fetchAndSyncDeviceConfiguration = useCallback(async (hardwareId: string) => {
     if (!user || !isAuthenticated) {
@@ -252,187 +456,15 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       console.error("SYNC ERR: Error fetching/applying device config:", error);
     }
   }, [sendSerialCommand, addLog, user, isAuthenticated]);
-  
-  const processReceivedData = useCallback(async (jsonString: string) => {
-    addLog(`[DEBUG] Línea recibida: '${jsonString}'`);
-    let data;
-    try {
-      data = JSON.parse(jsonString);
-    } catch (error: any) {
-      if (isHandshakeCompleteRef.current) {
-        addLog(`PARSE ERR: Error parseando JSON: '${jsonString}'. Error: ${error.message}`);
-      }
-      return;
-    }
-
-    // Priority 1: Handshake
-    if (data.type === 'hello_arduino' && data.hardwareId) {
-      if (!isHandshakeCompleteRef.current) {
-        addLog(`HANDSHAKE: 'hello_arduino' recibido. Estableciendo Hardware ID a ${data.hardwareId}.`);
-        setConnectedDeviceHardwareId(data.hardwareId);
-        setIsHandshakeComplete(true);
-      } else {
-        addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId} (post-handshake).`);
-      }
-      return;
-    }
-
-    if (!isHandshakeCompleteRef.current) {
-      addLog(`MSG WARN: Mensaje ignorado, esperando handshake: ${jsonString}`);
-      return;
-    }
-
-    const displayHardwareId = connectedDeviceHardwareIdRef.current;
-
-    if (data.hardwareId && data.hardwareId !== displayHardwareId) {
-      addLog(`MSG WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${displayHardwareId}). Ignorando.`);
-      return;
-    }
-
-    const isSensorData = data.hardwareId && (
-        data.temperature !== undefined ||
-        data.airHumidity !== undefined ||
-        data.soilHumidity !== undefined ||
-        data.lightLevel !== undefined ||
-        data.waterLevel !== undefined ||
-        data.ph !== undefined ||
-        data.drainageDistance !== undefined
-    );
-
-    if (isSensorData) {
-        addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
-        try {
-            addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
-            const response = await fetch('/api/ingest-sensor-data', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(data),
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
-            addLog(`API: Datos de ${data.hardwareId} enviados al servidor: ${result.message}`);
-        } catch (apiError: any) {
-            addLog(`API ERR: Error enviando datos de ${data.hardwareId}: ${apiError.message}`);
-            console.error("API Ingest Error:", apiError);
-        }
-        return;
-    }
-
-    if (data.type) {
-        switch(data.type) {
-            case "ack_interval_set":
-              addLog(`MSG: ACK de intervalo recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
-              break;
-            case "ack_photo_interval_set":
-              addLog(`MSG: ACK de intervalo de foto recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
-              break;
-            case "ack_temp_unit_set":
-              addLog(`MSG: ACK de unidad de temperatura recibido de ${displayHardwareId}. Nueva unidad: ${data.new_unit}`);
-              break;
-            case "ack_auto_irrigation_set":
-              addLog(`MSG: ACK de auto riego recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
-              break;
-            case "ack_auto_ventilation_set":
-              addLog(`MSG: ACK de auto ventilación recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
-              break;
-            case "ack_led_set":
-              addLog(`ACK: LED estado confirmado: ${data.state} por ${displayHardwareId}`);
-              break;
-            case 'ack_fan_set':
-              addLog(`ACK: Ventilador estado confirmado: ${data.state} por ${displayHardwareId}`);
-              break;
-            case 'ack_valve_set':
-              addLog(`ACK: Válvula estado confirmado: ${data.state} por ${displayHardwareId}`);
-              break;
-            case 'ack_auto_mode_set':
-              addLog(`ACK: Modo automático activado para ${data.device} por ${displayHardwareId}`);
-              break;
-            case 'parse_error':
-              addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
-              break;
-            default:
-                addLog(`MSG WARN: Tipo de mensaje con 'type' desconocido de ${displayHardwareId}: ${jsonString}`);
-                break;
-        }
-        return;
-    }
-    
-    addLog(`MSG WARN: Mensaje no reconocido o datos incompletos de ${displayHardwareId}: ${jsonString}`);
-
-  }, [addLog, setConnectedDeviceHardwareId]);
-
-  const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
-    addLog("RL: Preparando para iniciar bucle de lectura...");
-    keepReading.current = true;
-    
-    if (textDecoderStreamRef.current) {
-        try {
-           if (textDecoderStreamRef.current.writable?.locked) {
-             await textDecoderStreamRef.current.writable.getWriter().close();
-           }
-        } catch (e) { addLog("RL WARN: Error cerrando TextDecoderStream anterior.");}
-    }
-    textDecoderStreamRef.current = new TextDecoderStream();
-    lineBufferRef.current = '';
-
-    if (currentPortInstance.readable.locked) {
-        addLog("RL ERR: port.readable ya está bloqueado antes de pipeThrough. Abortando readLoop.");
-        internalDisconnectPortRef.current(false);
-        return;
-    }
-
-    const readableStream = currentPortInstance.readable.pipeThrough(textDecoderStreamRef.current);
-    streamReaderRef.current = readableStream.getReader() as unknown as SerialReader;
-    addLog("RL: Lector obtenido del TextDecoderStream. Iniciando bucle de lectura de strings...");
-
-    try {
-      while (keepReading.current) {
-        const { value, done } = await streamReaderRef.current.read();
-        if (done) {
-          if (!disconnectInitiatedRef.current) addLog("RL: Bucle finalizado (stream cerrado por 'done').");
-          break;
-        }
-        if (value) {
-          lineBufferRef.current += value;
-          let newlineIndex;
-          while ((newlineIndex = lineBufferRef.current.indexOf('\n')) >= 0) {
-            let line = lineBufferRef.current.substring(0, newlineIndex).trim();
-            lineBufferRef.current = lineBufferRef.current.substring(newlineIndex + 1);
-            
-            if (line) {
-              await processReceivedData(line);
-            }
-          }
-        }
-      }
-    } catch (error: any) {
-      if (!disconnectInitiatedRef.current && error.name !== 'AbortError' && error.name !== 'TypeError') {
-        addLog(`RL ERR: Error en el bucle de lectura: ${error.name} - ${error.message}`);
-        console.error("RL ERR: Read loop error:", error);
-      } else if (error.name === 'TypeError' && !disconnectInitiatedRef.current) {
-        addLog(`RL INFO: TypeError durante la lectura, posible desconexión abrupta: ${error.message}`);
-      }
-    } finally {
-      addLog("RL: Ejecutando bloque finally del bucle de lectura.");
-      if (streamReaderRef.current) {
-        try {
-            streamReaderRef.current.releaseLock();
-        } catch (e) {
-        }
-        streamReaderRef.current = null;
-      }
-      addLog("RL: Bucle de lectura detenido completamente (finally ejecutado).");
-      if (!disconnectInitiatedRef.current && isConnected) {
-         addLog("RL: Desconexión inesperada detectada en finally del bucle de lectura. Intentando limpieza.");
-         internalDisconnectPortRef.current(false);
-      }
-    }
-  }, [addLog, processReceivedData, isConnected]);
 
   const connectPort = useCallback(async () => {
     disconnectInitiatedRef.current = false;
     lineBufferRef.current = '';
-    setIsHandshakeComplete(false);
+    
+    _setIsHandshakeComplete(false);
+    isHandshakeCompleteRef.current = false;
+    handshakeInProgressRef.current = false;
+    pendingMessagesRef.current = [];
 
     addLog("CONN: Intentando conectar...");
     setIsConnecting(true);
@@ -483,7 +515,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
         toast({ title: "Dispositivo Desconectado", description: `El dispositivo ${portLabel} se ha desconectado.`, variant: "destructive"});
         internalDisconnectPortRef.current(false);
       };
-      handleExternalDisconnectRef.current = handleExternalDisconnect;
+      
       selectedPort.addEventListener('disconnect', handleExternalDisconnect);
 
       readLoop(selectedPort);
@@ -512,10 +544,10 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
           await internalDisconnectPortRef.current(false);
       }
       
-      setPort(null); setWriter(null); setIsConnected(false); setConnectedDeviceHardwareId(null);
+      setPort(null); setWriter(null); setIsConnected(false); _setConnectedDeviceHardwareId(null);
       setIsConnecting(false);
     }
-  }, [addLog, toast, readLoop, port, internalDisconnectPortRef, setConnectedDeviceHardwareId]);
+  }, [addLog, toast, readLoop, port, internalDisconnectPortRef]);
 
   useEffect(() => {
     addLog(`SYNC_EFFECT: Triggered. hwId: ${connectedDeviceHardwareId}, writer: ${!!writer}, connected: ${isConnected}, user: ${!!user}`);
