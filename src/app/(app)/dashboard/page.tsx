@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeviceSelector } from '@/components/dashboard/DeviceSelector';
-import type { Device, SensorData } from '@/lib/types';
+import type { Device, SensorData, DeviceSettings } from '@/lib/types';
 import { SensorType } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Settings, AlertTriangle } from 'lucide-react';
@@ -29,9 +29,11 @@ export default function DashboardPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorData[]>([]);
+  const [deviceSettings, setDeviceSettings] = useState<DeviceSettings | null>(null);
+  const [notifiedAlerts, setNotifiedAlerts] = useState<Record<string, boolean>>({});
   
-  const [isLoading, setIsLoading] = useState(true); // Simplified loading state for initial load
-  const [isRefreshingSensors, setIsRefreshingSensors] = useState(false); // For subsequent refreshes
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingSensors, setIsRefreshingSensors] = useState(false);
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
 
   const lastProcessedLogCountRef = useRef(0);
@@ -44,9 +46,10 @@ export default function DashboardPage() {
     }
 
     try {
-        const [sensorResult, deviceResult] = await Promise.allSettled([
+        const [sensorResult, deviceResult, settingsResult] = await Promise.allSettled([
             fetch(`/api/sensor-data/${deviceId}?userId=${user.id}`),
-            fetch(`/api/devices/${deviceId}?userId=${user.id}`)
+            fetch(`/api/devices/${deviceId}?userId=${user.id}`),
+            fetch(`/api/device-settings/${deviceId}?userId=${user.id}`)
         ]);
 
         if (sensorResult.status === 'fulfilled' && sensorResult.value.ok) {
@@ -61,6 +64,14 @@ export default function DashboardPage() {
             setCurrentDevice(updatedDeviceData);
             setDevices(prev => prev.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
         }
+
+        if (settingsResult.status === 'fulfilled' && settingsResult.value.ok) {
+            const settingsData: DeviceSettings = await settingsResult.value.json();
+            setDeviceSettings(settingsData);
+        } else if (!isPoll) {
+            setDeviceSettings(null);
+        }
+
     } catch(e) {
         console.error("Error fetching sensor data for device:", e);
         if (!isPoll) {
@@ -74,7 +85,6 @@ export default function DashboardPage() {
   }, [user, toast]);
 
 
-  // Effect 1: Fetch all initial data (devices, and then sensors for the first device)
   useEffect(() => {
     if (!user) return;
 
@@ -82,7 +92,6 @@ export default function DashboardPage() {
       setIsLoading(true);
       setDbSchemaError(null);
       try {
-        // 1. Fetch devices
         const deviceResponse = await fetch(`/api/devices?userId=${user.id}`);
         const fetchedDevices = await deviceResponse.json();
         if (!deviceResponse.ok) {
@@ -93,7 +102,6 @@ export default function DashboardPage() {
         setDevices(fetchedDevices);
 
         if (fetchedDevices.length > 0) {
-          // 2. Determine which device to select
           const storedDeviceId = localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY);
           const deviceToSelect = 
             fetchedDevices.find(d => d.serialNumber === storedDeviceId) || 
@@ -101,21 +109,25 @@ export default function DashboardPage() {
           
           setSelectedDeviceId(deviceToSelect.serialNumber);
           setCurrentDevice(deviceToSelect);
+          setNotifiedAlerts({});
 
-          // 3. Fetch sensor data for the selected device
-          const sensorResponse = await fetch(`/api/sensor-data/${deviceToSelect.serialNumber}?userId=${user.id}`);
+          const [sensorResponse, settingsResponse] = await Promise.all([
+            fetch(`/api/sensor-data/${deviceToSelect.serialNumber}?userId=${user.id}`),
+            fetch(`/api/device-settings/${deviceToSelect.serialNumber}?userId=${user.id}`)
+          ]);
+          
           if (sensorResponse.ok) {
-            const fetchedSensors = await sensorResponse.json();
-            setSensorReadings(fetchedSensors);
-          } else {
-            console.warn(`Initial sensor data fetch failed for ${deviceToSelect.serialNumber}`);
-            setSensorReadings([]);
-          }
+            setSensorReadings(await sensorResponse.json());
+          } else { setSensorReadings([]); }
+          if (settingsResponse.ok) {
+            setDeviceSettings(await settingsResponse.json());
+          } else { setDeviceSettings(null); }
+
         } else {
-          // No devices, clear everything
           setSelectedDeviceId(null);
           setCurrentDevice(null);
           setSensorReadings([]);
+          setDeviceSettings(null);
         }
       } catch (error: any) {
         console.error("Error fetching initial dashboard data:", error.message);
@@ -127,34 +139,31 @@ export default function DashboardPage() {
     fetchInitialData();
   }, [user]);
 
-  // Effect 2: Update local storage when selection changes
   useEffect(() => {
     if (selectedDeviceId) {
       localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
       window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: selectedDeviceId } }));
-    } else if (!isLoading) { // Avoid clearing on initial load before selection is made
+    } else if (!isLoading) {
        localStorage.removeItem(SELECTED_DEVICE_ID_LS_KEY);
        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: null } }));
     }
   }, [selectedDeviceId, isLoading]);
 
 
-  // Effect 3: Fetch new sensor data when device selection changes (but not on initial load)
   useEffect(() => {
     if (selectedDeviceId && !isLoading) {
       const device = devices.find(d => d.serialNumber === selectedDeviceId);
       if (device) {
+        setNotifiedAlerts({});
         setCurrentDevice(device);
         fetchSensorDataForDevice(selectedDeviceId, false);
       }
     }
-  }, [selectedDeviceId]);
+  }, [selectedDeviceId, isLoading, devices, fetchSensorDataForDevice]);
 
 
-  // Effect 4: Polling for active device
   useEffect(() => {
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-
     if (selectedDeviceId && currentDevice?.isActive) {
       pollingIntervalRef.current = setInterval(() => {
         if (!document.hidden) {
@@ -162,34 +171,61 @@ export default function DashboardPage() {
         }
       }, SENSOR_POLLING_INTERVAL_MS);
     }
-
     return () => {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
     };
   }, [selectedDeviceId, currentDevice?.isActive, fetchSensorDataForDevice]);
   
-  // Effect 5: Refresh on USB data
   useEffect(() => {
     if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || isRefreshingSensors) {
       lastProcessedLogCountRef.current = usbLogMessages.length;
       return;
     }
-
     const newLogs = usbLogMessages.slice(0, usbLogMessages.length - lastProcessedLogCountRef.current);
-
     const hasNewRelevantLog = newLogs.some(log =>
         (log.includes(`MSG: Datos de sensores recibidos de ${usbHardwareId}`) ||
          log.includes(`API: Datos de ${usbHardwareId} enviados al servidor`))
     );
-
     if (hasNewRelevantLog) {
-      console.log(`[Dashboard] USB Update: New relevant log found for ${currentDevice.name}. Refreshing data.`);
       fetchSensorDataForDevice(currentDevice.serialNumber, false);
       toast({ title: "Dashboard Updated", description: `Data for ${currentDevice.name} refreshed via USB connection.`, duration: 3000 });
     }
     lastProcessedLogCountRef.current = usbLogMessages.length;
-
   }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataForDevice, isRefreshingSensors, toast]);
+
+  useEffect(() => {
+    if (!deviceSettings || sensorReadings.length === 0) return;
+
+    const checkAndNotify = (reading: SensorData | undefined, type: SensorType, check: 'high' | 'low', threshold: number, message: string) => {
+      if (!reading) return;
+      const key = `${type}_${check}`;
+      if (notifiedAlerts[key]) return;
+
+      let conditionMet = (check === 'high' && reading.value > threshold) || (check === 'low' && reading.value < threshold);
+
+      if (conditionMet) {
+        toast({
+          title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
+          description: `${message} Current: ${reading.value.toFixed(1)}${reading.unit || ''}.`,
+          variant: 'destructive',
+          duration: 10000,
+        });
+        setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
+      }
+    };
+
+    if (deviceSettings.autoVentilation) {
+      const tempReading = sensorReadings.find(s => s.type === SensorType.TEMPERATURE);
+      checkAndNotify(tempReading, SensorType.TEMPERATURE, 'high', deviceSettings.temperatureThreshold, 'Temperature is too high!');
+      checkAndNotify(tempReading, SensorType.TEMPERATURE, 'low', 10, 'Temperature is getting very low.');
+    }
+
+    if (deviceSettings.autoIrrigation) {
+      const soilReading = sensorReadings.find(s => s.type === SensorType.SOIL_HUMIDITY);
+      checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'low', deviceSettings.irrigationThreshold, 'Soil is dry, may need watering.');
+      checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'high', 95, 'Soil is very saturated.');
+    }
+  }, [sensorReadings, deviceSettings, toast, notifiedAlerts, currentDevice?.name]);
 
   const getSensorValue = (type: SensorType) => sensorReadings.find(s => s.type === type);
 
