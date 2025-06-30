@@ -22,6 +22,7 @@ const SENSOR_TYPES_FOR_DISPLAY: SensorType[] = [
   SensorType.LIGHT,
   SensorType.PH,
   SensorType.WATER_LEVEL,
+  SensorType.DRAINAGE,
 ];
 
 const POLLING_INTERVAL_MS = 30000; // 30 seconds
@@ -250,4 +251,3 @@ export default function MonitoringPage() {
     </div>
   );
 }
-

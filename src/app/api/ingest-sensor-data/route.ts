@@ -13,6 +13,7 @@ const sensorReadingSchema = z.object({
   lightLevel: z.number().optional(),
   waterLevel: z.union([z.literal(0), z.literal(1), z.number().min(0).max(100)]).optional(),
   ph: z.number().optional(),
+  drainageDistance: z.number().optional(),
 });
 
 type SensorPayload = z.infer<typeof sensorReadingSchema>;
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
         console.warn('[API/ingest] Invalid sensor data received:', validation.error.format(), 'Item:', item);
         return { success: false, error: validation.error.format() };
       }
-      const { hardwareId, temperature, airHumidity, soilHumidity, lightLevel, waterLevel, ph } = validation.data;
+      const { hardwareId, temperature, airHumidity, soilHumidity, lightLevel, waterLevel, ph, drainageDistance } = validation.data;
 
       const device = await db.get<Device>('SELECT serialNumber FROM devices WHERE hardwareIdentifier = ?', hardwareId);
       if (!device) {
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
       if (lightLevel !== undefined) readingsToInsert.push({ deviceId, type: SensorType.LIGHT, value: lightLevel, unit: 'lux', timestamp: now });
       if (waterLevel !== undefined) readingsToInsert.push({ deviceId, type: SensorType.WATER_LEVEL, value: waterLevel, unit: (waterLevel === 0 || waterLevel === 1) ? 'state' : '%', timestamp: now }); 
       if (ph !== undefined) readingsToInsert.push({ deviceId, type: SensorType.PH, value: ph, unit: '', timestamp: now });
+      if (drainageDistance !== undefined) readingsToInsert.push({ deviceId, type: SensorType.DRAINAGE, value: drainageDistance, unit: 'cm', timestamp: now });
       
       return { success: true };
     };

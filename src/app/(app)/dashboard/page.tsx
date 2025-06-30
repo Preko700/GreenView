@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -281,6 +282,7 @@ export default function DashboardPage() {
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.LIGHT)} sensorType={SensorType.LIGHT} />
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.PH)} sensorType={SensorType.PH} />
                 <SensorDisplayCard sensorData={getSensorValue(SensorType.WATER_LEVEL)} sensorType={SensorType.WATER_LEVEL} />
+                <SensorDisplayCard sensorData={getSensorValue(SensorType.DRAINAGE)} sensorType={SensorType.DRAINAGE} />
               </div>
             ) : (
               <Card className="mt-4">
@@ -309,4 +311,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-    

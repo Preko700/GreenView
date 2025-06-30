@@ -1,6 +1,7 @@
+
 import { SensorType, type SensorData } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Thermometer, Droplets, Wind, Sun, Waves, Leaf, TrendingUp } from 'lucide-react';
+import { Thermometer, Droplets, Wind, Sun, Waves, Leaf, TrendingUp, ArrowDownToLine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface SensorDisplayCardProps {
@@ -16,7 +17,7 @@ const sensorMeta: Record<SensorType, { name: string; icon: React.ElementType; de
   [SensorType.PH]: { name: 'Soil pH', icon: TrendingUp, defaultUnit: '' }, // Using TrendingUp as PH placeholder
   [SensorType.LIGHT]: { name: 'Light Intensity', icon: Sun, defaultUnit: 'lux' },
   [SensorType.WATER_LEVEL]: { name: 'Water Level', icon: Waves, defaultUnit: '%' },
-  [SensorType.DRAINAGE]: { name: 'Drainage', icon: Wind, defaultUnit: '' }, // Using Wind for drainage placeholder
+  [SensorType.DRAINAGE]: { name: 'Drainage Distance', icon: ArrowDownToLine, defaultUnit: 'cm' },
 };
 
 
@@ -50,4 +51,3 @@ export function SensorDisplayCard({ sensorData, sensorType, className }: SensorD
     </Card>
   );
 }
-

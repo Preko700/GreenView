@@ -29,7 +29,7 @@ const sensorTypeToFriendlyName: Record<AppSensorType, string> = {
   [SensorType.PH]: "pH Level",
   [SensorType.LIGHT]: "Light Intensity",
   [SensorType.WATER_LEVEL]: "Water Level",
-  [SensorType.DRAINAGE]: "Drainage Events",
+  [SensorType.DRAINAGE]: "Drainage Distance",
 };
 
 export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
@@ -176,4 +176,3 @@ export function DataChart({ sensorData, sensorType, title }: DataChartProps) {
     </Card>
   );
 }
-
