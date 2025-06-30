@@ -213,18 +213,47 @@ export default function DashboardPage() {
         setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
       }
     };
+    
+    const checkWaterLevel = () => {
+        const waterReading = sensorReadings.find(s => s.type === SensorType.WATER_LEVEL);
+        if (!waterReading) return;
 
+        const key = `${SensorType.WATER_LEVEL}_low`;
+        if (notifiedAlerts[key]) return;
+
+        if (waterReading.value === 0) { // 0 means LOW
+             toast({
+                title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
+                description: "Water level is low. Please consider refilling the reservoir.",
+                variant: 'destructive',
+                duration: 10000,
+            });
+            setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
+        }
+    };
+
+    // Temperature Alerts
     if (deviceSettings.autoVentilation) {
       const tempReading = sensorReadings.find(s => s.type === SensorType.TEMPERATURE);
       checkAndNotify(tempReading, SensorType.TEMPERATURE, 'high', deviceSettings.temperatureThreshold, 'Temperature is too high!');
       checkAndNotify(tempReading, SensorType.TEMPERATURE, 'low', 10, 'Temperature is getting very low.');
     }
 
+    // Soil Humidity Alerts
     if (deviceSettings.autoIrrigation) {
       const soilReading = sensorReadings.find(s => s.type === SensorType.SOIL_HUMIDITY);
       checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'low', deviceSettings.irrigationThreshold, 'Soil is dry, may need watering.');
       checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'high', 95, 'Soil is very saturated.');
     }
+
+    // Water Level Alert
+    checkWaterLevel();
+    
+    // Drainage Alert
+    const drainageReading = sensorReadings.find(s => s.type === SensorType.DRAINAGE);
+    // Alert if drainage distance is < 5cm, indicating water is present and not draining well.
+    checkAndNotify(drainageReading, SensorType.DRAINAGE, 'low', 5, 'Water detected in drainage tray, check for blockages.');
+
   }, [sensorReadings, deviceSettings, toast, notifiedAlerts, currentDevice?.name]);
 
   const getSensorValue = (type: SensorType) => sensorReadings.find(s => s.type === type);
