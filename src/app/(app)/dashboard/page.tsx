@@ -197,13 +197,19 @@ export default function DashboardPage() {
     if (!deviceSettings || sensorReadings.length === 0) return;
 
     const checkAndNotify = (reading: SensorData | undefined, type: SensorType, check: 'high' | 'low', threshold: number, message: string) => {
-      if (!reading) return;
       const key = `${type}_${check}`;
-      if (notifiedAlerts[key]) return;
+      const isCurrentlyAlerting = notifiedAlerts[key];
+      
+      if (!reading) {
+        if (isCurrentlyAlerting) {
+            setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
+        }
+        return;
+      }
+      
+      const conditionMet = (check === 'high' && reading.value > threshold) || (check === 'low' && reading.value < threshold);
 
-      let conditionMet = (check === 'high' && reading.value > threshold) || (check === 'low' && reading.value < threshold);
-
-      if (conditionMet) {
+      if (conditionMet && !isCurrentlyAlerting) {
         toast({
           title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
           description: `${message} Current: ${reading.value.toFixed(1)}${reading.unit || ''}.`,
@@ -211,17 +217,26 @@ export default function DashboardPage() {
           duration: 10000,
         });
         setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
+      } else if (!conditionMet && isCurrentlyAlerting) {
+          setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
       }
     };
     
     const checkWaterLevel = () => {
         const waterReading = sensorReadings.find(s => s.type === SensorType.WATER_LEVEL);
-        if (!waterReading) return;
-
         const key = `${SensorType.WATER_LEVEL}_low`;
-        if (notifiedAlerts[key]) return;
+        const isCurrentlyAlerting = notifiedAlerts[key];
 
-        if (waterReading.value === 0) { // 0 means LOW
+        if (!waterReading) {
+            if (isCurrentlyAlerting) {
+                setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
+            }
+            return;
+        }
+
+        const conditionMet = waterReading.value === 0; // 0 means LOW
+
+        if (conditionMet && !isCurrentlyAlerting) {
              toast({
                 title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
                 description: "Water level is low. Please consider refilling the reservoir.",
@@ -229,6 +244,8 @@ export default function DashboardPage() {
                 duration: 10000,
             });
             setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
+        } else if (!conditionMet && isCurrentlyAlerting) {
+            setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
         }
     };
 
