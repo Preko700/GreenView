@@ -134,14 +134,26 @@ export async function GET(request: NextRequest) {
   try {
     const db = await getDb();
     if (hardwareIdentifierParam) {
-      const device: Device | undefined = await db.get(sqlQuery, ...queryParams);
-      if (device) {
+      const deviceRow: any = await db.get(sqlQuery, ...queryParams);
+      if (deviceRow) {
+        // Explicitly cast boolean fields
+        const device: Device = {
+            ...deviceRow,
+            isActive: !!deviceRow.isActive,
+            isPoweredByBattery: !!deviceRow.isPoweredByBattery,
+        };
         return NextResponse.json(device, { status: 200 });
       } else {
         return NextResponse.json({ message: 'Device not found with the specified hardwareIdentifier for this user' }, { status: 404 });
       }
     } else {
-      const devices: Device[] = await db.all(sqlQuery, ...queryParams);
+      const deviceRows: any[] = await db.all(sqlQuery, ...queryParams);
+       // Explicitly cast boolean fields
+      const devices: Device[] = deviceRows.map(row => ({
+        ...row,
+        isActive: !!row.isActive,
+        isPoweredByBattery: !!row.isPoweredByBattery,
+      }));
       return NextResponse.json(devices, { status: 200 });
     }
   } catch (error: any) {
