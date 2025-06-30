@@ -23,6 +23,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 
 // --- Admin Panel Component ---
@@ -169,6 +176,7 @@ function AdminPanel() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
+                      <TableHead>Device</TableHead>
                       <TableHead>Subject</TableHead>
                       <TableHead>From</TableHead>
                       <TableHead>Status</TableHead>
@@ -179,6 +187,13 @@ function AdminPanel() {
                     {tickets.map((ticket) => (
                       <TableRow key={ticket.id}>
                         <TableCell>{format(new Date(ticket.timestamp), "PPP p")}</TableCell>
+                        <TableCell>
+                          {ticket.deviceId ? (
+                            <Badge variant="outline" className="font-mono">{ticket.deviceId}</Badge>
+                          ) : (
+                             <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium">{ticket.subject}</TableCell>
                         <TableCell>{ticket.email}</TableCell>
                         <TableCell><Badge variant={getStatusVariant(ticket.status)}>{ticket.status.replace('_', ' ')}</Badge></TableCell>
@@ -255,12 +270,18 @@ function AdminPanel() {
                 <div>
                     <h4 className="font-semibold mb-2">Original Message</h4>
                     <div className="p-4 bg-muted rounded-md text-sm max-h-48 overflow-y-auto">{detailItem.message}</div>
+                    {detailItem.deviceId && (
+                        <div className="mt-4">
+                          <h4 className="font-semibold">Associated Device</h4>
+                          <p className="text-sm font-mono text-muted-foreground p-2 bg-muted rounded-md mt-1">{detailItem.deviceId}</p>
+                        </div>
+                    )}
                 </div>
                 <div>
-                  <h4 className="font-semibold mb-2">Service Log</h4>
+                  <h4 className="font-semibold mb-2">Service Log (Bitácora)</h4>
                   <div className="space-y-4">
                     <div className="space-y-2">
-                       <Label htmlFor="new-log-entry">Add New Log Entry (Bitácora)</Label>
+                       <Label htmlFor="new-log-entry">Add New Log Entry (Actions/Result)</Label>
                        <Textarea id="new-log-entry" value={newLogEntry} onChange={(e) => setNewLogEntry(e.target.value)} placeholder={`Log entry by ${user?.name}...`} rows={3} disabled={isSubmittingLog}/>
                        <Button onClick={() => handleAddLogEntry(detailItem.id)} disabled={isSubmittingLog || !newLogEntry.trim()}>
                         {isSubmittingLog && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
@@ -284,7 +305,11 @@ function AdminPanel() {
                   </div>
                 </div>
               </div>
-              <DialogFooter><DialogClose asChild><Button type="button" variant="secondary">Close</Button></DialogClose></DialogFooter>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button" variant="secondary">Close</Button>
+                </DialogClose>
+              </DialogFooter>
             </>
           )}
         </DialogContent>
@@ -302,12 +327,32 @@ function UserSupportView() {
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('general');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(true);
   const [isSubmittingTicket, setIsSubmittingTicket] = useState(false);
   
   useEffect(() => {
     if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
+
+      const fetchDevices = async () => {
+        setIsLoadingDevices(true);
+        try {
+          const response = await fetch(`/api/devices?userId=${user.id}`);
+          if (response.ok) {
+            setDevices(await response.json());
+          } else {
+            console.error("Failed to fetch user devices for support form");
+          }
+        } catch (error) {
+          console.error("Error fetching devices:", error);
+        } finally {
+          setIsLoadingDevices(false);
+        }
+      };
+      fetchDevices();
     }
   }, [user]);
 
@@ -322,13 +367,20 @@ function UserSupportView() {
       const response = await fetch('/api/support/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, subject, message }),
+        body: JSON.stringify({ 
+          name, 
+          email, 
+          subject, 
+          message,
+          deviceId: selectedDeviceId === 'general' ? null : selectedDeviceId,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Failed to submit ticket.");
       toast({ title: "Ticket Submitted!", description: "Our support team will get back to you shortly." });
       setSubject('');
       setMessage('');
+      setSelectedDeviceId('general');
     } catch (error: any) {
       toast({ title: "Submission Failed", description: error.message, variant: "destructive" });
     } finally {
@@ -355,6 +407,26 @@ function UserSupportView() {
                   <Label htmlFor="email">Email Address</Label>
                   <Input id="email" type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={isSubmittingTicket} />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="device">Related Device (Optional)</Label>
+                <Select
+                  value={selectedDeviceId}
+                  onValueChange={setSelectedDeviceId}
+                  disabled={isSubmittingTicket || isLoadingDevices}
+                >
+                  <SelectTrigger id="device">
+                    <SelectValue placeholder="Select a device..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="general">General Inquiry</SelectItem>
+                    {devices.map(device => (
+                      <SelectItem key={device.serialNumber} value={device.serialNumber}>
+                        {device.name} ({device.serialNumber})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="subject">Subject</Label>

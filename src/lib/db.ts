@@ -86,12 +86,14 @@ export async function getDb() {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS support_tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        deviceId TEXT,
         name TEXT NOT NULL,
         email TEXT NOT NULL,
         subject TEXT NOT NULL,
         message TEXT NOT NULL,
         status TEXT DEFAULT 'PENDING',
-        timestamp INTEGER NOT NULL
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (deviceId) REFERENCES devices(serialNumber) ON DELETE SET NULL
       );
     `);
     

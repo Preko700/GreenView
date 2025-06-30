@@ -67,6 +67,7 @@ export enum TicketStatus {
 
 export interface SupportTicket {
   id: number;
+  deviceId?: string | null;
   name: string;
   email: string;
   subject: string;
