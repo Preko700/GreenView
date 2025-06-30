@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DeviceSelector } from '@/components/dashboard/DeviceSelector';
 import type { Device, SensorData, DeviceSettings } from '@/lib/types';
@@ -15,7 +15,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SensorDisplayCard } from '@/components/dashboard/SensorDisplayCard';
+import { SensorDisplayCardSkeleton } from '@/components/dashboard/SensorDisplayCardSkeleton';
 import { useUsbConnection } from '@/contexts/UsbConnectionContext';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useLoadingStates } from '@/hooks/useLoadingStates';
 
 const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
 const SENSOR_POLLING_INTERVAL_MS = 15000; // Auto-refresh every 15 seconds
@@ -24,16 +27,25 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { connectedDeviceHardwareId: usbHardwareId, logMessages: usbLogMessages } = useUsbConnection();
+  const { 
+    processAlertChecks, 
+    clearAllNotifications 
+  } = useNotifications();
+  const {
+    loadingStates,
+    setInitialLoading,
+    setRefreshingLoading,
+    setDeviceSwitchingLoading,
+    shouldShowSkeleton,
+    shouldShowRefreshSpinner
+  } = useLoadingStates();
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [sensorReadings, setSensorReadings] = useState<SensorData[]>([]);
   const [deviceSettings, setDeviceSettings] = useState<DeviceSettings | null>(null);
-  const [notifiedAlerts, setNotifiedAlerts] = useState<Record<string, boolean>>({});
   
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshingSensors, setIsRefreshingSensors] = useState(false);
   const [dbSchemaError, setDbSchemaError] = useState<string | null>(null);
 
   const lastProcessedLogCountRef = useRef(0);
@@ -41,8 +53,9 @@ export default function DashboardPage() {
 
   const fetchSensorDataForDevice = useCallback(async (deviceId: string, isPoll = false) => {
     if (!user) return;
+    
     if (!isPoll) {
-      setIsRefreshingSensors(true);
+      setRefreshingLoading(true);
     }
 
     try {
@@ -62,7 +75,7 @@ export default function DashboardPage() {
         if (deviceResult.status === 'fulfilled' && deviceResult.value.ok) {
             const updatedDeviceData: Device = await deviceResult.value.json();
             setCurrentDevice(updatedDeviceData);
-            setDevices(prev => prev.map(d => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
+            setDevices(prev => prev.map((d: Device) => d.serialNumber === updatedDeviceData.serialNumber ? updatedDeviceData : d));
         }
 
         if (settingsResult.status === 'fulfilled' && settingsResult.value.ok) {
@@ -79,17 +92,17 @@ export default function DashboardPage() {
         }
     } finally {
         if (!isPoll) {
-          setIsRefreshingSensors(false);
+          setRefreshingLoading(false);
         }
     }
-  }, [user, toast]);
+  }, [user, toast, setRefreshingLoading]);
 
 
   useEffect(() => {
     if (!user) return;
 
     const fetchInitialData = async () => {
-      setIsLoading(true);
+      setInitialLoading(true);
       setDbSchemaError(null);
       try {
         const deviceResponse = await fetch(`/api/devices?userId=${user.id}`);
@@ -104,12 +117,12 @@ export default function DashboardPage() {
         if (fetchedDevices.length > 0) {
           const storedDeviceId = localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY);
           const deviceToSelect = 
-            fetchedDevices.find(d => d.serialNumber === storedDeviceId) || 
+            fetchedDevices.find((d: Device) => d.serialNumber === storedDeviceId) || 
             fetchedDevices[0];
           
           setSelectedDeviceId(deviceToSelect.serialNumber);
           setCurrentDevice(deviceToSelect);
-          setNotifiedAlerts({});
+          clearAllNotifications();
 
           const [sensorResponse, settingsResponse] = await Promise.all([
             fetch(`/api/sensor-data/${deviceToSelect.serialNumber}?userId=${user.id}`),
@@ -132,34 +145,37 @@ export default function DashboardPage() {
       } catch (error: any) {
         console.error("Error fetching initial dashboard data:", error.message);
       } finally {
-        setIsLoading(false);
+        setInitialLoading(false);
       }
     };
 
     fetchInitialData();
-  }, [user]);
+  }, [user, setInitialLoading, clearAllNotifications]);
 
   useEffect(() => {
     if (selectedDeviceId) {
       localStorage.setItem(SELECTED_DEVICE_ID_LS_KEY, selectedDeviceId);
       window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: selectedDeviceId } }));
-    } else if (!isLoading) {
+    } else if (!loadingStates.initial) {
        localStorage.removeItem(SELECTED_DEVICE_ID_LS_KEY);
        window.dispatchEvent(new CustomEvent('selectedDeviceChanged', { detail: { deviceId: null } }));
     }
-  }, [selectedDeviceId, isLoading]);
+  }, [selectedDeviceId, loadingStates.initial]);
 
 
   useEffect(() => {
-    if (selectedDeviceId && !isLoading) {
-      const device = devices.find(d => d.serialNumber === selectedDeviceId);
+    if (selectedDeviceId && !loadingStates.initial) {
+      const device = devices.find((d: Device) => d.serialNumber === selectedDeviceId);
       if (device) {
-        setNotifiedAlerts({});
+        setDeviceSwitchingLoading(true);
+        clearAllNotifications();
         setCurrentDevice(device);
-        fetchSensorDataForDevice(selectedDeviceId, false);
+        fetchSensorDataForDevice(selectedDeviceId, false).finally(() => {
+          setDeviceSwitchingLoading(false);
+        });
       }
     }
-  }, [selectedDeviceId, isLoading, devices, fetchSensorDataForDevice]);
+  }, [selectedDeviceId, loadingStates.initial, devices, fetchSensorDataForDevice, clearAllNotifications, setDeviceSwitchingLoading]);
 
 
   useEffect(() => {
@@ -177,7 +193,7 @@ export default function DashboardPage() {
   }, [selectedDeviceId, currentDevice?.isActive, fetchSensorDataForDevice]);
   
   useEffect(() => {
-    if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || isRefreshingSensors) {
+    if (!currentDevice || !usbHardwareId || currentDevice.hardwareIdentifier !== usbHardwareId || shouldShowRefreshSpinner()) {
       lastProcessedLogCountRef.current = usbLogMessages.length;
       return;
     }
@@ -191,87 +207,83 @@ export default function DashboardPage() {
       toast({ title: "Dashboard Updated", description: `Data for ${currentDevice.name} refreshed via USB connection.`, duration: 3000 });
     }
     lastProcessedLogCountRef.current = usbLogMessages.length;
-  }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataForDevice, isRefreshingSensors, toast]);
+  }, [usbLogMessages, currentDevice, usbHardwareId, fetchSensorDataForDevice, shouldShowRefreshSpinner, toast]);
 
-  useEffect(() => {
-    if (!deviceSettings || sensorReadings.length === 0) return;
-
-    const checkAndNotify = (reading: SensorData | undefined, type: SensorType, check: 'high' | 'low', threshold: number, message: string) => {
-      const key = `${type}_${check}`;
-      const isCurrentlyAlerting = notifiedAlerts[key];
-      
-      if (!reading) {
-        if (isCurrentlyAlerting) {
-            setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
-        }
-        return;
-      }
-      
-      const conditionMet = (check === 'high' && reading.value > threshold) || (check === 'low' && reading.value < threshold);
-
-      if (conditionMet && !isCurrentlyAlerting) {
-        toast({
-          title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
-          description: `${message} Current: ${reading.value.toFixed(1)}${reading.unit || ''}.`,
-          variant: 'destructive',
-          duration: 10000,
-        });
-        setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
-      } else if (!conditionMet && isCurrentlyAlerting) {
-          setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
-      }
-    };
+  // Memoized alert checks to prevent unnecessary recalculations
+  const alertChecks = useMemo(() => {
+    if (!deviceSettings || sensorReadings.length === 0 || !currentDevice) return [];
     
-    const checkWaterLevel = () => {
-        const waterReading = sensorReadings.find(s => s.type === SensorType.WATER_LEVEL);
-        const key = `${SensorType.WATER_LEVEL}_low`;
-        const isCurrentlyAlerting = notifiedAlerts[key];
-
-        if (!waterReading) {
-            if (isCurrentlyAlerting) {
-                setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
-            }
-            return;
+    const checks = [];
+    
+    // Helper function to create alert check
+    const createAlertCheck = (reading: SensorData | undefined, sensorType: SensorType, checkType: 'high' | 'low', threshold: number, message: string) => {
+      if (!reading) return null;
+      
+      const key = `${currentDevice.serialNumber}_${sensorType}_${checkType}`;
+      const conditionMet = (checkType === 'high' && reading.value > threshold) || (checkType === 'low' && reading.value < threshold);
+      
+      return {
+        key,
+        shouldAlert: conditionMet,
+        notification: {
+          title: `Sensor Alert: ${currentDevice.name}`,
+          description: `${message} Current: ${reading.value.toFixed(1)}${reading.unit || ''}.`,
+          variant: 'destructive' as const,
+          duration: 10000,
         }
-
-        const conditionMet = waterReading.value === 0; // 0 means LOW
-
-        if (conditionMet && !isCurrentlyAlerting) {
-             toast({
-                title: `Sensor Alert: ${currentDevice?.name || 'Device'}`,
-                description: "Water level is low. Please consider refilling the reservoir.",
-                variant: 'destructive',
-                duration: 10000,
-            });
-            setNotifiedAlerts(prev => ({ ...prev, [key]: true }));
-        } else if (!conditionMet && isCurrentlyAlerting) {
-            setNotifiedAlerts(prev => ({ ...prev, [key]: false }));
-        }
+      };
     };
 
     // Temperature Alerts
     if (deviceSettings.autoVentilation) {
       const tempReading = sensorReadings.find(s => s.type === SensorType.TEMPERATURE);
-      checkAndNotify(tempReading, SensorType.TEMPERATURE, 'high', deviceSettings.temperatureThreshold, 'Temperature is too high!');
-      checkAndNotify(tempReading, SensorType.TEMPERATURE, 'low', 10, 'Temperature is getting very low.');
+      const tempHighCheck = createAlertCheck(tempReading, SensorType.TEMPERATURE, 'high', deviceSettings.temperatureThreshold, 'Temperature is too high!');
+      const tempLowCheck = createAlertCheck(tempReading, SensorType.TEMPERATURE, 'low', 10, 'Temperature is getting very low.');
+      if (tempHighCheck) checks.push(tempHighCheck);
+      if (tempLowCheck) checks.push(tempLowCheck);
     }
 
     // Soil Humidity Alerts
     if (deviceSettings.autoIrrigation) {
       const soilReading = sensorReadings.find(s => s.type === SensorType.SOIL_HUMIDITY);
-      checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'low', deviceSettings.irrigationThreshold, 'Soil is dry, may need watering.');
-      checkAndNotify(soilReading, SensorType.SOIL_HUMIDITY, 'high', 95, 'Soil is very saturated.');
+      const soilLowCheck = createAlertCheck(soilReading, SensorType.SOIL_HUMIDITY, 'low', deviceSettings.irrigationThreshold, 'Soil is dry, may need watering.');
+      const soilHighCheck = createAlertCheck(soilReading, SensorType.SOIL_HUMIDITY, 'high', 95, 'Soil is very saturated.');
+      if (soilLowCheck) checks.push(soilLowCheck);
+      if (soilHighCheck) checks.push(soilHighCheck);
     }
 
     // Water Level Alert
-    checkWaterLevel();
+    const waterReading = sensorReadings.find(s => s.type === SensorType.WATER_LEVEL);
+    if (waterReading) {
+      const key = `${currentDevice.serialNumber}_${SensorType.WATER_LEVEL}_low`;
+      const conditionMet = waterReading.value === 0; // 0 means LOW
+      
+      checks.push({
+        key,
+        shouldAlert: conditionMet,
+        notification: {
+          title: `Sensor Alert: ${currentDevice.name}`,
+          description: "Water level is low. Please consider refilling the reservoir.",
+          variant: 'destructive' as const,
+          duration: 10000,
+        }
+      });
+    }
     
     // Drainage Alert
     const drainageReading = sensorReadings.find(s => s.type === SensorType.DRAINAGE);
-    // Alert if drainage distance is < 5cm, indicating water is present and not draining well.
-    checkAndNotify(drainageReading, SensorType.DRAINAGE, 'low', 5, 'Water detected in drainage tray, check for blockages.');
+    const drainageCheck = createAlertCheck(drainageReading, SensorType.DRAINAGE, 'low', 5, 'Water detected in drainage tray, check for blockages.');
+    if (drainageCheck) checks.push(drainageCheck);
 
-  }, [sensorReadings, deviceSettings, toast, notifiedAlerts, currentDevice?.name]);
+    return checks;
+  }, [deviceSettings, sensorReadings, currentDevice]);
+
+  // Process alert checks when they change
+  useEffect(() => {
+    if (alertChecks.length > 0) {
+      processAlertChecks(alertChecks);
+    }
+  }, [alertChecks, processAlertChecks]);
 
   const getSensorValue = (type: SensorType) => sensorReadings.find(s => s.type === type);
 
@@ -303,8 +315,12 @@ export default function DashboardPage() {
         title="Greenhouse Dashboard"
         description="Monitor your greenhouse devices and sensor data."
         action={
-          <Button onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} disabled={isRefreshingSensors || !selectedDeviceId} variant="outline">
-            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshingSensors ? 'animate-spin' : ''}`} />
+          <Button 
+            onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} 
+            disabled={!selectedDeviceId || shouldShowSkeleton() || shouldShowRefreshSpinner()} 
+            variant="outline"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${shouldShowRefreshSpinner() ? 'animate-spin' : ''}`} />
             Refresh Sensor Data
           </Button>
         }
@@ -316,19 +332,19 @@ export default function DashboardPage() {
             devices={devices} 
             selectedDeviceId={selectedDeviceId} 
             onSelectDevice={setSelectedDeviceId}
-            isLoading={isLoading} 
+            isLoading={shouldShowSkeleton()} 
         />
       </section>
 
-      {isLoading && (
+      {shouldShowSkeleton() && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-36 w-full" />
+          {[...Array(7)].map((_, i) => (
+            <SensorDisplayCardSkeleton key={i} />
           ))}
         </div>
       )}
 
-      {!isLoading && currentDevice && (
+      {!shouldShowSkeleton() && currentDevice && (
         <section>
           <div className="flex justify-between items-center mb-4">
             <div>
@@ -349,10 +365,10 @@ export default function DashboardPage() {
                  <span className="text-xs bg-yellow-100 text-yellow-700 font-medium px-2.5 py-0.5 rounded-full dark:bg-yellow-900 dark:text-yellow-300">Status Unknown</span>
             )}
           </div>
-          {isRefreshingSensors && sensorReadings.length === 0 ? (
+          {shouldShowRefreshSpinner() && sensorReadings.length === 0 ? (
              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {[...Array(6)].map((_, i) => (
-                    <Skeleton key={`${i}-loading`} className="h-36 w-full" />
+                {[...Array(7)].map((_, i) => (
+                    <SensorDisplayCardSkeleton key={`${i}-loading`} />
                 ))}
             </div>
           ) : (
@@ -370,8 +386,17 @@ export default function DashboardPage() {
               <Card className="mt-4">
                 <CardHeader> <CardTitle className="text-lg text-center">No Sensor Data</CardTitle> </CardHeader>
                 <CardContent className="text-center text-muted-foreground">
-                  <p>No sensor readings available for this device yet.</p>
-                  <p className="mt-1">If the device is active, data should appear after the next poll or you can try to <Button variant="link" className="p-0 h-auto" onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} disabled={isRefreshingSensors}>refresh</Button>.</p>
+                  {shouldShowRefreshSpinner() ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                  ) : (
+                    <>
+                      <p>No sensor readings available for this device yet.</p>
+                      <p className="mt-1">If the device is active, data should appear after the next poll or you can try to <Button variant="link" className="p-0 h-auto" onClick={() => selectedDeviceId && fetchSensorDataForDevice(selectedDeviceId, false)} disabled={shouldShowRefreshSpinner()}>refresh</Button>.</p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )
@@ -379,7 +404,7 @@ export default function DashboardPage() {
         </section>
       )}
       
-       {!isLoading && devices.length === 0 && !dbSchemaError && (
+       {!shouldShowSkeleton() && devices.length === 0 && !dbSchemaError && (
          <Card className="mt-8">
             <CardHeader> <CardTitle className="text-lg text-center">No Devices Available</CardTitle> </CardHeader>
             <CardContent className="text-center text-muted-foreground">
