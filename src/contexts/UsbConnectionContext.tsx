@@ -54,10 +54,10 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   const [writer, setWriter] = useState<SerialWriter | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [isHandshakeComplete, setIsHandshakeComplete] = useState(false);
+  const [isHandshakeComplete, _setIsHandshakeComplete] = useState(false);
   const [portInfo, setPortInfo] = useState<string | null>(null);
   const [logMessages, setLogMessages] = useState<string[]>([]);
-  const [connectedDeviceHardwareId, setConnectedDeviceHardwareId] = useState<string | null>(null);
+  const [connectedDeviceHardwareId, _setConnectedDeviceHardwareId] = useState<string | null>(null);
 
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
@@ -67,6 +67,18 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   const textDecoderStreamRef = useRef<TransformStream<Uint8Array, string> | null>(null);
   const streamReaderRef = useRef<SerialReader | null>(null);
   const lineBufferRef = useRef('');
+  const isHandshakeCompleteRef = useRef(false);
+  const connectedDeviceHardwareIdRef = useRef<string | null>(null);
+
+  const setIsHandshakeComplete = (value: boolean) => {
+    isHandshakeCompleteRef.current = value;
+    _setIsHandshakeComplete(value);
+  };
+
+  const setConnectedDeviceHardwareId = useCallback((hwId: string | null) => {
+    _setConnectedDeviceHardwareId(hwId);
+    connectedDeviceHardwareIdRef.current = hwId;
+  }, []);
 
   const addLog = useCallback((message: string) => {
     const now = new Date();
@@ -162,7 +174,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
     setIsConnecting(false);
     disconnectInitiatedRef.current = false;
     addLog("DISC: Estado de conexión reseteado post-desconexión.");
-  }, [addLog, toast, port, writer]);
+  }, [addLog, toast, port, writer, setConnectedDeviceHardwareId]);
 
   const internalDisconnectPortRef = useRef(_internalDisconnectPort);
   useEffect(() => {
@@ -242,78 +254,112 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
   }, [sendSerialCommand, addLog, user, isAuthenticated]);
   
   const processReceivedData = useCallback(async (jsonString: string) => {
+    addLog(`[DEBUG] Línea recibida: '${jsonString}'`);
     let data;
     try {
       data = JSON.parse(jsonString);
     } catch (error: any) {
-      // Only log parse errors if handshake is complete, to avoid noise from initial buffer clearing.
-      if (isHandshakeComplete) {
+      if (isHandshakeCompleteRef.current) {
         addLog(`PARSE ERR: Error parseando JSON: '${jsonString}'. Error: ${error.message}`);
       }
       return;
     }
 
-    // Handshake logic: wait for the first "hello_arduino" message
-    if (!isHandshakeComplete) {
-      if (data.type === 'hello_arduino' && data.hardwareId) {
+    // Priority 1: Handshake
+    if (data.type === 'hello_arduino' && data.hardwareId) {
+      if (!isHandshakeCompleteRef.current) {
         addLog(`HANDSHAKE: 'hello_arduino' recibido. Estableciendo Hardware ID a ${data.hardwareId}.`);
         setConnectedDeviceHardwareId(data.hardwareId);
         setIsHandshakeComplete(true);
+      } else {
+        addLog(`MSG: 'hello_arduino' recibido de ${data.hardwareId} (post-handshake).`);
       }
-      // Silently ignore any other messages before handshake is complete
       return;
     }
-    
-    // Post-handshake logic
-    const displayHardwareId = connectedDeviceHardwareId;
+
+    if (!isHandshakeCompleteRef.current) {
+      addLog(`MSG WARN: Mensaje ignorado, esperando handshake: ${jsonString}`);
+      return;
+    }
+
+    const displayHardwareId = connectedDeviceHardwareIdRef.current;
 
     if (data.hardwareId && data.hardwareId !== displayHardwareId) {
       addLog(`MSG WARN: ID de hardware recibido (${data.hardwareId}) no coincide con el conectado (${displayHardwareId}). Ignorando.`);
       return;
     }
 
-    if (data.type === "hello_arduino") {
-      addLog(`MSG: 'hello_arduino' recibido de ${displayHardwareId} (post-handshake).`);
-    } else if (data.type === "ack_interval_set") {
-      addLog(`MSG: ACK de intervalo recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
-    } else if (data.type === "ack_photo_interval_set") {
-      addLog(`MSG: ACK de intervalo de foto recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
-    } else if (data.type === "ack_temp_unit_set") {
-      addLog(`MSG: ACK de unidad de temperatura recibido de ${displayHardwareId}. Nueva unidad: ${data.new_unit}`);
-    } else if (data.type === "ack_auto_irrigation_set") {
-      addLog(`MSG: ACK de auto riego recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
-    } else if (data.type === "ack_auto_ventilation_set") {
-      addLog(`MSG: ACK de auto ventilación recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
-    } else if (data.type === "ack_led_set") {
-      addLog(`ACK: LED estado confirmado: ${data.state} por ${displayHardwareId}`);
-    } else if (data.type === 'ack_fan_set') {
-      addLog(`ACK: Ventilador estado confirmado: ${data.state} por ${displayHardwareId}`);
-    } else if (data.type === 'ack_valve_set') {
-      addLog(`ACK: Válvula estado confirmado: ${data.state} por ${displayHardwareId}`);
-    } else if (data.type === 'ack_auto_mode_set') {
-      addLog(`ACK: Modo automático activado para ${data.device} por ${displayHardwareId}`);
-    } else if (data.type === 'parse_error') {
-      addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
-    } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined || data.drainageDistance !== undefined)) {
-      addLog(`MSG: Datos de sensores recibidos de ${displayHardwareId}: ${jsonString}`);
-      try {
-        addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
-        const response = await fetch('/api/ingest-sensor-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
-        addLog(`API: Datos de ${displayHardwareId} enviados al servidor: ${result.message}`);
-      } catch (apiError: any) {
-        addLog(`API ERR: Error enviando datos de ${displayHardwareId}: ${apiError.message}`);
-        console.error("API Ingest Error:", apiError);
-      }
-    } else {
-      addLog(`MSG WARN: Tipo de mensaje JSON desconocido o datos incompletos de ${displayHardwareId}: ${jsonString}`);
+    const isSensorData = data.hardwareId && (
+        data.temperature !== undefined ||
+        data.airHumidity !== undefined ||
+        data.soilHumidity !== undefined ||
+        data.lightLevel !== undefined ||
+        data.waterLevel !== undefined ||
+        data.ph !== undefined ||
+        data.drainageDistance !== undefined
+    );
+
+    if (isSensorData) {
+        addLog(`MSG: Datos de sensores recibidos de ${data.hardwareId}: ${jsonString}`);
+        try {
+            addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
+            const response = await fetch('/api/ingest-sensor-data', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || `Error ${response.status}`);
+            addLog(`API: Datos de ${data.hardwareId} enviados al servidor: ${result.message}`);
+        } catch (apiError: any) {
+            addLog(`API ERR: Error enviando datos de ${data.hardwareId}: ${apiError.message}`);
+            console.error("API Ingest Error:", apiError);
+        }
+        return;
     }
-  }, [addLog, isHandshakeComplete, connectedDeviceHardwareId, setConnectedDeviceHardwareId, setIsHandshakeComplete]);
+
+    if (data.type) {
+        switch(data.type) {
+            case "ack_interval_set":
+              addLog(`MSG: ACK de intervalo recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_ms} ms`);
+              break;
+            case "ack_photo_interval_set":
+              addLog(`MSG: ACK de intervalo de foto recibido de ${displayHardwareId}. Nuevo intervalo: ${data.new_interval_hours} horas`);
+              break;
+            case "ack_temp_unit_set":
+              addLog(`MSG: ACK de unidad de temperatura recibido de ${displayHardwareId}. Nueva unidad: ${data.new_unit}`);
+              break;
+            case "ack_auto_irrigation_set":
+              addLog(`MSG: ACK de auto riego recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Umbral: ${data.threshold}%`);
+              break;
+            case "ack_auto_ventilation_set":
+              addLog(`MSG: ACK de auto ventilación recibido de ${displayHardwareId}. Habilitado: ${data.enabled}, Temp On: ${data.temp_on}, Temp Off: ${data.temp_off}`);
+              break;
+            case "ack_led_set":
+              addLog(`ACK: LED estado confirmado: ${data.state} por ${displayHardwareId}`);
+              break;
+            case 'ack_fan_set':
+              addLog(`ACK: Ventilador estado confirmado: ${data.state} por ${displayHardwareId}`);
+              break;
+            case 'ack_valve_set':
+              addLog(`ACK: Válvula estado confirmado: ${data.state} por ${displayHardwareId}`);
+              break;
+            case 'ack_auto_mode_set':
+              addLog(`ACK: Modo automático activado para ${data.device} por ${displayHardwareId}`);
+              break;
+            case 'parse_error':
+              addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
+              break;
+            default:
+                addLog(`MSG WARN: Tipo de mensaje con 'type' desconocido de ${displayHardwareId}: ${jsonString}`);
+                break;
+        }
+        return;
+    }
+    
+    addLog(`MSG WARN: Mensaje no reconocido o datos incompletos de ${displayHardwareId}: ${jsonString}`);
+
+  }, [addLog, setConnectedDeviceHardwareId]);
 
   const readLoop = useCallback(async (currentPortInstance: SerialPort) => {
     addLog("RL: Preparando para iniciar bucle de lectura...");
@@ -469,7 +515,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       setPort(null); setWriter(null); setIsConnected(false); setConnectedDeviceHardwareId(null);
       setIsConnecting(false);
     }
-  }, [addLog, toast, readLoop, port, internalDisconnectPortRef]);
+  }, [addLog, toast, readLoop, port, internalDisconnectPortRef, setConnectedDeviceHardwareId]);
 
   useEffect(() => {
     addLog(`SYNC_EFFECT: Triggered. hwId: ${connectedDeviceHardwareId}, writer: ${!!writer}, connected: ${isConnected}, user: ${!!user}`);
