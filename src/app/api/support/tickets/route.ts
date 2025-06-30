@@ -6,6 +6,7 @@ import type { SupportTicket } from '@/lib/types';
 import { TicketStatus } from '@/lib/types';
 
 const ticketSchema = z.object({
+  deviceId: z.string().optional().nullable(),
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email"),
   subject: z.string().min(1, "Subject is required"),
@@ -21,12 +22,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Invalid input", errors: validation.error.format() }, { status: 400 });
     }
 
-    const { name, email, subject, message } = validation.data;
+    const { deviceId, name, email, subject, message } = validation.data;
     const db = await getDb();
     const timestamp = Date.now();
 
     const result = await db.run(
-      'INSERT INTO support_tickets (name, email, subject, message, status, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO support_tickets (deviceId, name, email, subject, message, status, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      deviceId,
       name,
       email,
       subject,

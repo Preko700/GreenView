@@ -294,7 +294,7 @@ export function UsbConnectionProvider({ children }: { children: ReactNode }) {
       addLog(`ACK: Modo automático activado para ${data.device} por ${displayHardwareId}`);
     } else if (data.type === 'parse_error') {
       addLog(`ARDUINO PARSE ERR: Arduino reportó un error de parseo. Input: '${data.raw_input}', Error: ${data.error}`);
-    } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined)) {
+    } else if (data.hardwareId && (data.temperature !== undefined || data.airHumidity !== undefined || data.soilHumidity !== undefined || data.lightLevel !== undefined || data.waterLevel !== undefined || data.ph !== undefined || data.drainageDistance !== undefined)) {
       addLog(`MSG: Datos de sensores recibidos de ${displayHardwareId}: ${jsonString}`);
       try {
         addLog(`API: Enviando a /api/ingest-sensor-data: ${JSON.stringify(data)}`);
