@@ -15,6 +15,73 @@ export interface RegistrationCredentials extends EmailPasswordCredentials {
     name: string;
 }
 
+// Product and Supermarket Types
+export interface Product {
+  id: string;
+  name: string;
+  description?: string;
+  barcode: string;
+  price: number;
+  category: string;
+  brand?: string;
+  imageUrl?: string;
+  stock: number;
+  isActive: boolean;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  parentCategoryId?: string;
+}
+
+export interface CartItem {
+  productId: string;
+  quantity: number;
+  addedAt: number;
+}
+
+export interface Cart {
+  id: string;
+  userId: number;
+  items: CartItem[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface Order {
+  id: string;
+  userId: number;
+  items: (CartItem & { product: Product; totalPrice: number })[];
+  totalAmount: number;
+  status: OrderStatus;
+  paymentMethod: string;
+  deliveryMethod: DeliveryMethod;
+  deliveryAddress?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export enum OrderStatus {
+  PENDING = "PENDING",
+  CONFIRMED = "CONFIRMED",
+  PREPARING = "PREPARING",
+  READY_FOR_PICKUP = "READY_FOR_PICKUP",
+  OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY",
+  DELIVERED = "DELIVERED",
+  CANCELLED = "CANCELLED",
+}
+
+export enum DeliveryMethod {
+  PICKUP = "PICKUP",
+  DELIVERY = "DELIVERY",
+}
+
+// Legacy Types (keeping for backward compatibility during transition)
 export interface Device {
   serialNumber: string;
   hardwareIdentifier: string;

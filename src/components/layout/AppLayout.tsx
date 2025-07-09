@@ -15,9 +15,10 @@ import {
 } from '@/components/ui/sidebar';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserNav } from '@/components/layout/UserNav';
+import { CartBadge } from '@/components/layout/CartBadge';
 import { Logo } from '@/components/Logo';
 import type { NavItem } from '@/lib/types';
-import { LayoutDashboard, BarChart3, ToggleLeft, Image as ImageIcon, Settings, LifeBuoy, Bot } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, ScanLine, CreditCard, Settings, LifeBuoy, Bot } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -25,16 +26,12 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const SELECTED_DEVICE_ID_LS_KEY = 'selectedDashboardDeviceId';
 
-const generateBaseNavItems = (deviceId: string | null): NavItem[] => {
-  const baseHref = (path: string) => deviceId ? `${path}/${deviceId}` : '/dashboard';
-  const isActionDisabled = !deviceId;
-
+const generateBaseNavItems = (): NavItem[] => {
   return [
-    { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { title: 'AI Assistant', href: '/ai-assistant', icon: Bot },
-    { title: 'Monitoring', href: baseHref('/monitoring'), icon: BarChart3, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
-    { title: 'Control', href: baseHref('/control'), icon: ToggleLeft, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
-    { title: 'Media', href: baseHref('/media'), icon: ImageIcon, disabled: isActionDisabled, description: isActionDisabled ? "Select a device" : undefined },
+    { title: 'Products', href: '/products', icon: Package },
+    { title: 'Scanner', href: '/scanner', icon: ScanLine },
+    { title: 'Cart', href: '/cart', icon: ShoppingCart },
+    { title: 'Orders', href: '/orders', icon: CreditCard },
     { title: 'Settings', href: '/settings', icon: Settings },
     { title: 'Support', href: '/support', icon: LifeBuoy },
   ];
@@ -65,40 +62,24 @@ function CollapsibleSidebar() {
 
   useEffect(() => {
     const updateNavItems = () => {
-      const storedDeviceId = typeof window !== 'undefined' ? localStorage.getItem(SELECTED_DEVICE_ID_LS_KEY) : null;
-      const baseItems = generateBaseNavItems(storedDeviceId);
+      const baseItems = generateBaseNavItems();
       setCurrentNavItems(baseItems);
     };
 
     updateNavItems();
-
-    const handleDeviceChange = () => updateNavItems();
-    window.addEventListener('selectedDeviceChanged', handleDeviceChange);
-    
-    window.addEventListener('storage', (event) => {
-        if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
-            updateNavItems();
-        }
-    });
-
-    return () => {
-      window.removeEventListener('selectedDeviceChanged', handleDeviceChange);
-      window.removeEventListener('storage', (event) => {
-        if (event.key === SELECTED_DEVICE_ID_LS_KEY) {
-            updateNavItems();
-        }
-      });
-    };
   }, [user]);
 
   return (
     <Sidebar collapsible="icon" side="left" variant="sidebar">
       <SidebarHeader className="p-4 flex items-center justify-between">
         {!isCollapsed && <Logo />}
-         <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hidden md:flex">
+        <div className="flex items-center gap-2">
+          {!isCollapsed && <CartBadge />}
+          <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hidden md:flex">
             {isCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
             <span className="sr-only">Toggle Sidebar</span>
           </Button>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarNav items={currentNavItems} isCollapsed={isCollapsed} />
@@ -143,7 +124,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-[57px] items-center gap-1 border-b bg-background px-4 md:hidden">
             <SidebarTrigger />
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <CartBadge />
               <UserNav />
             </div>
         </header>

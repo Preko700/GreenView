@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { CartProvider } from '@/contexts/CartContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { UsbConnectionProvider } from '@/contexts/UsbConnectionContext'; // NUEVA IMPORTACIÓN
 
@@ -19,11 +20,13 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
         <AuthProvider>
-          <UsbConnectionProvider> {/* ENVOLVER AQUÍ */}
-            <AppLayout>
-              {children}
-            </AppLayout>
-          </UsbConnectionProvider>
+          <CartProvider>
+            <UsbConnectionProvider> {/* ENVOLVER AQUÍ */}
+              <AppLayout>
+                {children}
+              </AppLayout>
+            </UsbConnectionProvider>
+          </CartProvider>
           <Toaster />
         </AuthProvider>
       </body>

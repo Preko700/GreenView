@@ -53,8 +53,8 @@ export default function LoginPage() {
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="items-center text-center">
         <Logo className="h-12 w-12" />
-        <CardTitle className="mt-2 text-2xl">Welcome Back to GreenView</CardTitle>
-        <CardDescription>Sign in to continue to your dashboard.</CardDescription>
+        <CardTitle className="mt-2 text-2xl">Welcome Back to SuperScan</CardTitle>
+        <CardDescription>Sign in to continue shopping.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>

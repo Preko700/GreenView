@@ -34,7 +34,7 @@ export default function SplashScreen() {
     return (
       <div className="flex h-screen flex-col items-center justify-center bg-background text-primary">
         <Loader2 className="h-12 w-12 animate-spin" />
-        <p className="mt-4 text-lg">Loading GreenView...</p>
+        <p className="mt-4 text-lg">Loading SuperScan...</p>
       </div>
     );
   }
@@ -54,7 +54,7 @@ export default function SplashScreen() {
         transition={{ duration: 0.8, delay: 0.3 }}
         className="mt-6 text-4xl font-semibold text-primary"
       >
-        GreenView
+        SuperScan
       </motion.h1>
       <motion.p
         initial={{ opacity: 0 }}
@@ -62,7 +62,7 @@ export default function SplashScreen() {
         transition={{ duration: 0.8, delay: 0.6 }}
         className="mt-2 text-lg text-foreground/80"
       >
-        Cultivating Future
+        Smart Shopping Experience
       </motion.p>
     </div>
   );

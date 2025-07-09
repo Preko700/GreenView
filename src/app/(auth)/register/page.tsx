@@ -65,7 +65,7 @@ export default function RegisterPage() {
       <CardHeader className="items-center text-center">
         <Logo className="h-12 w-12" />
         <CardTitle className="mt-2 text-2xl">Create an Account</CardTitle>
-        <CardDescription>Join GreenView to manage your greenhouse.</CardDescription>
+        <CardDescription>Join SuperScan for a better shopping experience.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Form {...form}>
